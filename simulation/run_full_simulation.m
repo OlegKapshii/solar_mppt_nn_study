@@ -14,7 +14,7 @@ addpath(fullfile(project_dir, 'data_generation'));
 addpath(sim_dir);
 
 fprintf('=== Симуляція MPPT системи ===\n');
-fprintf('Алгоритми: P&O | NN-GT (G,T входи) | NN-VI (V,I,P,dV,dP входи)\n\n');
+fprintf('Алгоритми: P&O | NN-GT (G,T входи) | NN-VI Hybrid (V,I,P,dV,dP входи)\n\n');
 
 data_file    = fullfile(project_dir, 'data_generation', 'training_data.mat');
 model_file   = fullfile(project_dir, 'neural_network', 'trained_network.mat');
@@ -160,12 +160,14 @@ V_nn = zeros(1, num_steps);
 I_nn = zeros(1, num_steps);
 P_nn = zeros(1, num_steps);
 
-% NN-VI MPPT (використовує лише доступні вимірювання)
+% NN-VI Hybrid MPPT (використовує лише доступні вимірювання)
 V_nn_vi = zeros(1, num_steps);
 I_nn_vi = zeros(1, num_steps);
 P_nn_vi = zeros(1, num_steps);
 V_nn_vi(1) = 40;  % Стартова напруга [V] (така сама як P&O)
 deltaV_nn_vi = zeros(1, num_steps);
+V_nn_vi_prev = V_nn_vi(1);
+P_nn_vi_prev = 0;
 
 % Оптимальні значення (теоретичні)
 V_optimal = zeros(1, num_steps);
@@ -222,7 +224,9 @@ for i = 1:num_steps
     [~, P_at_V_nn, I_nn(i)] = calculate_panel_output(G, T, V_nn(i));
     P_nn(i) = P_at_V_nn;
 
-    % === NN-VI MPPT (реалістичний: використовує поточні V, I, P, dV, dP) ===
+    % === NN-VI Hybrid MPPT ===
+    % Мережа дає рекомендацію deltaV, але локальна P&O-перевірка не дозволяє
+    % систематично йти в гірший бік при помилковому прогнозі.
     [~, P_at_V_nn_vi, I_nn_vi(i)] = calculate_panel_output(G, T, V_nn_vi(i));
     P_nn_vi(i) = P_at_V_nn_vi;
 
@@ -234,15 +238,42 @@ for i = 1:num_steps
         dP_nn_vi_curr = P_nn_vi(i) - P_nn_vi(i - 1);
     end
 
-    % Прогнозуємо не абсолютну напругу, а крок корекції deltaV
-    deltaV_cmd = nn_forward_vi(network_vi, [V_nn_vi(i); I_nn_vi(i); P_nn_vi(i); dV_nn_vi_curr; dP_nn_vi_curr]);
-    deltaV_cmd = max(-2, min(2, deltaV_cmd));
+    % Рекомендація від мережі
+    deltaV_nn = nn_forward_vi(network_vi, [V_nn_vi(i); I_nn_vi(i); P_nn_vi(i); dV_nn_vi_curr; dP_nn_vi_curr]);
+
+    % Локальна корекція у стилі P&O для страхування від хибних кроків NN
+    V_po_like = mppt_po(V_nn_vi_prev, P_nn_vi_prev, V_nn_vi(i), P_nn_vi(i), 0.6);
+    deltaV_po_like = V_po_like - V_nn_vi(i);
+
+    if i == 1
+        deltaV_cmd = 0.6 * deltaV_nn;
+    elseif dP_nn_vi_curr < -1.0
+        % Якщо останній крок зменшив потужність, довіряємо локальній корекції.
+        deltaV_cmd = deltaV_po_like;
+    elseif sign(deltaV_nn) ~= sign(deltaV_po_like) && abs(dP_nn_vi_curr) > 2.0
+        % При сильному конфлікті напрямків і помітній зміні потужності
+        % обираємо більш надійний локальний напрямок.
+        deltaV_cmd = 0.75 * deltaV_po_like + 0.25 * deltaV_nn;
+    else
+        % У нормальному режимі змішуємо швидку реакцію NN і локальну стабільність.
+        deltaV_cmd = 0.55 * deltaV_nn + 0.45 * deltaV_po_like;
+    end
+
+    if abs(dP_nn_vi_curr) < 0.5
+        % Поблизу MPP зменшуємо агресивність кроку.
+        deltaV_cmd = 0.5 * deltaV_cmd;
+    end
+
+    deltaV_cmd = max(-1.2, min(1.2, deltaV_cmd));
     deltaV_nn_vi(i) = deltaV_cmd;
 
     if i < num_steps
         V_nn_vi(i + 1) = V_nn_vi(i) + deltaV_cmd;
         V_nn_vi(i + 1) = max(15, min(65, V_nn_vi(i + 1)));
     end
+
+    P_nn_vi_prev = P_nn_vi(i);
+    V_nn_vi_prev = V_nn_vi(i);
     
     % Вивід прогресу
     if mod(i, max(1, floor(num_steps / 10))) == 0
@@ -283,23 +314,23 @@ fprintf('=== РЕЗУЛЬТАТИ СИМУЛЯЦІЇ ===\n\n');
 fprintf('Вироблена енергія за період:\n');
 fprintf('  P&O MPPT:      %.2f Wh\n', energy_po);
 fprintf('  NN-GT MPPT:    %.2f Wh  (входи: G, T — нереалістично)\n', energy_nn);
-fprintf('  NN-VI MPPT:    %.2f Wh  (входи: V, I — реалістично)\n', energy_nn_vi);
+fprintf('  NN-VI Hybrid:  %.2f Wh  (NN + локальна P&O корекція)\n', energy_nn_vi);
 fprintf('  Оптимальна:    %.2f Wh\n', energy_optimal);
 
 fprintf('\nЕфективність відслідковування:\n');
 fprintf('  P&O MPPT:      %.2f%%\n', efficiency_po);
 fprintf('  NN-GT MPPT:    %.2f%%\n', efficiency_nn);
-fprintf('  NN-VI MPPT:    %.2f%%\n', efficiency_nn_vi);
+fprintf('  NN-VI Hybrid:  %.2f%%\n', efficiency_nn_vi);
 
 fprintf('\nПохибка напруги від оптимальної (MAE):\n');
 fprintf('  P&O MPPT:      %.2f V\n', error_po);
 fprintf('  NN-GT MPPT:    %.2f V\n', error_nn);
-fprintf('  NN-VI MPPT:    %.2f V\n', error_nn_vi);
+fprintf('  NN-VI Hybrid:  %.2f V\n', error_nn_vi);
 
 fprintf('\nОсциляції напруги (std):\n');
 fprintf('  P&O MPPT:      %.4f V\n', oscill_po);
 fprintf('  NN-GT MPPT:    %.4f V\n', oscill_nn);
-fprintf('  NN-VI MPPT:    %.4f V\n', oscill_nn_vi);
+fprintf('  NN-VI Hybrid:  %.4f V\n', oscill_nn_vi);
 fprintf('  Середній |deltaV| NN-VI: %.4f V\n', mean(abs(deltaV_nn_vi)));
 
 % КРОК 11: Збереження результатів

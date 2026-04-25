@@ -13,7 +13,7 @@ addpath(fullfile(project_dir, 'data_generation'));
 addpath(sim_dir);
 
 fprintf('=== ПОРІВНЮВАЛЬНЕ ДОСЛІДЖЕННЯ MPPT АЛГОРИТМІВ ===\n');
-fprintf('Алгоритми: P&O | NN-GT (G,T входи) | NN-VI (V,I,P,dV,dP входи)\n\n');
+fprintf('Алгоритми: P&O | NN-GT (G,T входи) | NN-VI Hybrid (V,I,P,dV,dP входи)\n\n');
 
 % Завантажуємо натреновану NN-GT мережу
 model_file = fullfile(project_dir, 'neural_network', 'trained_network.mat');
@@ -104,6 +104,8 @@ for scenario_idx = 1:length(scenarios)
     deltaV_nn_vi = zeros(1, num_steps);
     P_po_prev  = 0;
     V_po_prev  = 40;
+    P_nn_vi_prev = 0;
+    V_nn_vi_prev = 40;
     
     % Основний цикл
     update_counter = 0;
@@ -144,7 +146,7 @@ for scenario_idx = 1:length(scenarios)
         [~, P_at_V_nn, ~] = calculate_panel_output(G, T, V_nn(i));
         P_nn(i) = P_at_V_nn;
 
-        % NN-VI MPPT (реалістичний: використовує поточні V, I, P, dV, dP)
+        % NN-VI Hybrid MPPT
         [~, P_at_V_nn_vi, I_nn_vi_curr] = calculate_panel_output(G, T, V_nn_vi(i));
         P_nn_vi(i) = P_at_V_nn_vi;
         if i == 1
@@ -154,13 +156,29 @@ for scenario_idx = 1:length(scenarios)
             dV_nn_vi_curr = V_nn_vi(i) - V_nn_vi(i - 1);
             dP_nn_vi_curr = P_nn_vi(i) - P_nn_vi(i - 1);
         end
-        deltaV_cmd = nn_forward_vi(network_vi, [V_nn_vi(i); I_nn_vi_curr; P_nn_vi(i); dV_nn_vi_curr; dP_nn_vi_curr]);
-        deltaV_cmd = max(-2, min(2, deltaV_cmd));
+        deltaV_nn = nn_forward_vi(network_vi, [V_nn_vi(i); I_nn_vi_curr; P_nn_vi(i); dV_nn_vi_curr; dP_nn_vi_curr]);
+        V_po_like = mppt_po(V_nn_vi_prev, P_nn_vi_prev, V_nn_vi(i), P_nn_vi(i), 0.6);
+        deltaV_po_like = V_po_like - V_nn_vi(i);
+        if i == 1
+            deltaV_cmd = 0.6 * deltaV_nn;
+        elseif dP_nn_vi_curr < -1.0
+            deltaV_cmd = deltaV_po_like;
+        elseif sign(deltaV_nn) ~= sign(deltaV_po_like) && abs(dP_nn_vi_curr) > 2.0
+            deltaV_cmd = 0.75 * deltaV_po_like + 0.25 * deltaV_nn;
+        else
+            deltaV_cmd = 0.55 * deltaV_nn + 0.45 * deltaV_po_like;
+        end
+        if abs(dP_nn_vi_curr) < 0.5
+            deltaV_cmd = 0.5 * deltaV_cmd;
+        end
+        deltaV_cmd = max(-1.2, min(1.2, deltaV_cmd));
         deltaV_nn_vi(i) = deltaV_cmd;
         if i < num_steps
             V_nn_vi(i + 1) = V_nn_vi(i) + deltaV_cmd;
             V_nn_vi(i + 1) = max(15, min(65, V_nn_vi(i + 1)));
         end
+        P_nn_vi_prev = P_nn_vi(i);
+        V_nn_vi_prev = V_nn_vi(i);
     end
     
     % Розрахунок метрик
