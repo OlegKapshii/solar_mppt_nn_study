@@ -1,8 +1,9 @@
-% Тренування VI нейронної мережи методом gradient descent з momentum
+% Тренування VI нейронної мережи методом gradient descent з momentum (v4)
 % Адаптація nn_train.m для роботи з вимірюваними значеннями V та I панелі
 %
 % Структура training_data:
 %   .V_in - вектор напруг операційної точки [V]
+%   .V_prev - вектор напруг попереднього кроку [V]
 %   .I_in - вектор струмів операційної точки [A]
 %   .P_in - вектор потужностей операційної точки [W]
 %   .dV   - зміна напруги від попереднього кроку [V]
@@ -12,7 +13,7 @@
 function [network, training_info] = nn_train_vi(network, training_data, validation_data)
     % Входи:
     %   network       - ініціалізована мережа (nn_init_vi)
-    %   training_data - структура .V_in, .I_in, .P_in, .dV, .dP, .target_dV
+    %   training_data - структура .V_in, .V_prev, .I_in, .P_in, .dV, .dP, .target_dV
     %   validation_data - аналогічна (опціонально)
     %
     % Виходи:
@@ -27,7 +28,7 @@ function [network, training_info] = nn_train_vi(network, training_data, validati
     momentum      = network.momentum;
     num_epochs    = network.num_epochs;
 
-    X_train = [training_data.V_in; training_data.I_in; training_data.P_in; training_data.dV; training_data.dP];
+    X_train = [training_data.V_in; training_data.V_prev; training_data.I_in; training_data.P_in; training_data.dV; training_data.dP];
     y_train = training_data.target_dV;
 
     num_samples = size(X_train, 2);
@@ -63,7 +64,7 @@ function [network, training_info] = nn_train_vi(network, training_data, validati
 
         % Validation
         if ~isempty(validation_data)
-            X_val  = [validation_data.V_in; validation_data.I_in; validation_data.P_in; validation_data.dV; validation_data.dP];
+            X_val  = [validation_data.V_in; validation_data.V_prev; validation_data.I_in; validation_data.P_in; validation_data.dV; validation_data.dP];
             y_val  = validation_data.target_dV;
             pred_val  = nn_forward_vi(network, X_val);
             val_loss  = mean((pred_val - y_val).^2);
@@ -130,11 +131,13 @@ end
 
 function Xn = normalize_inputs(network, X)
     V_norm = (X(1, :) - network.V_in_min) / (network.V_in_max - network.V_in_min);
-    I_norm = (X(2, :) - network.I_in_min) / (network.I_in_max - network.I_in_min);
-    P_norm = (X(3, :) - network.P_in_min) / (network.P_in_max - network.P_in_min);
-    dV_norm = (X(4, :) - network.dV_min) / (network.dV_max - network.dV_min);
-    dP_norm = (X(5, :) - network.dP_min) / (network.dP_max - network.dP_min);
+    V_prev_norm = (X(2, :) - network.V_prev_min) / (network.V_prev_max - network.V_prev_min);
+    I_norm = (X(3, :) - network.I_in_min) / (network.I_in_max - network.I_in_min);
+    P_norm = (X(4, :) - network.P_in_min) / (network.P_in_max - network.P_in_min);
+    dV_norm = (X(5, :) - network.dV_min) / (network.dV_max - network.dV_min);
+    dP_norm = (X(6, :) - network.dP_min) / (network.dP_max - network.dP_min);
     Xn = [max(0, min(1, V_norm)); ...
+          max(0, min(1, V_prev_norm)); ...
           max(0, min(1, I_norm)); ...
           max(0, min(1, P_norm)); ...
           max(0, min(1, dV_norm)); ...

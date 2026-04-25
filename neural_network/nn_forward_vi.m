@@ -1,5 +1,5 @@
-% Пряма передача через VI нейронну мережу
-% Розраховує корекцію напруги deltaV на основі поточних вимірювань.
+% Пряма передача через VI нейронну мережу (вулучена версія v4)
+% Розраховує корекцію напруги deltaV на основі поточних вимірювань та історії.
 %
 % Відрізняється від nn_forward тим, що НЕ використовує освітленість (G)
 % та температуру (T) — лише ті величини, що доступні в реальній системі.
@@ -7,44 +7,47 @@
 function [output, hidden_activations] = nn_forward_vi(network, inputs)
     % Входи:
     %   network - структура мережі (з nn_init_vi або nn_train_vi)
-    %   inputs  - вектор [V; I; P; dV; dP] або матриця [5xN] або [Nx5]
-    %             V  - поточна напруга панелі [V]
-    %             I  - поточний струм панелі [A]
-    %             P  - поточна потужність панелі [W]
-    %             dV - зміна напруги між двома кроками [V]
-    %             dP - зміна потужності між двома кроками [W]
+    %   inputs  - вектор [V; V_prev; I; P; dV; dP] або матриця [6xN] або [Nx6]
+    %             V     - поточна напруга панелі [V]
+    %             V_prev- напруга панелі з попереднього кроку [V]
+    %             I     - поточний струм панелі [A]
+    %             P     - поточна потужність панелі [W]
+    %             dV    - зміна напруги між двома кроками [V]
+    %             dP    - зміна потужності між двома кроками [W]
     %
     % Виходи:
     %   output             - прогнозована корекція deltaV [V]
     %   hidden_activations - активації шарів (для аналізу, опціонально)
 
-    % Переведення у формат [5 x N]
-    if isvector(inputs) && numel(inputs) == 5
+    % Переведення у формат [6 x N]
+    if isvector(inputs) && numel(inputs) == 6
         x = inputs(:);
-    elseif size(inputs, 1) == 5
+    elseif size(inputs, 1) == 6
         x = inputs;
-    elseif size(inputs, 2) == 5
+    elseif size(inputs, 2) == 6
         x = inputs';
     else
-        error('Невірний формат входів. Очікуються [V; I; P; dV; dP], [5xN] або [Nx5].');
+        error('Невірний формат входів. Очікуються [V; V_prev; I; P; dV; dP], [6xN] або [Nx6].');
     end
 
     single_sample = (size(x, 2) == 1);
 
     % Нормалізація входів: [0, 1]
     V_norm = (x(1, :) - network.V_in_min) / (network.V_in_max - network.V_in_min);
-    I_norm = (x(2, :) - network.I_in_min) / (network.I_in_max - network.I_in_min);
-    P_norm = (x(3, :) - network.P_in_min) / (network.P_in_max - network.P_in_min);
-    dV_norm = (x(4, :) - network.dV_min) / (network.dV_max - network.dV_min);
-    dP_norm = (x(5, :) - network.dP_min) / (network.dP_max - network.dP_min);
+    V_prev_norm = (x(2, :) - network.V_prev_min) / (network.V_prev_max - network.V_prev_min);
+    I_norm = (x(3, :) - network.I_in_min) / (network.I_in_max - network.I_in_min);
+    P_norm = (x(4, :) - network.P_in_min) / (network.P_in_max - network.P_in_min);
+    dV_norm = (x(5, :) - network.dV_min) / (network.dV_max - network.dV_min);
+    dP_norm = (x(6, :) - network.dP_min) / (network.dP_max - network.dP_min);
 
     V_norm = max(0, min(1, V_norm));
+    V_prev_norm = max(0, min(1, V_prev_norm));
     I_norm = max(0, min(1, I_norm));
     P_norm = max(0, min(1, P_norm));
     dV_norm = max(0, min(1, dV_norm));
     dP_norm = max(0, min(1, dP_norm));
 
-    z = [V_norm; I_norm; P_norm; dV_norm; dP_norm];
+    z = [V_norm; V_prev_norm; I_norm; P_norm; dV_norm; dP_norm];
 
     activations    = {};
     activations{1} = z;

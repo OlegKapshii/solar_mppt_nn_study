@@ -1,21 +1,21 @@
-% Генерація синтетичних даних для тренування динамічної VI нейронної мережи MPPT
+% Генерація синтетичних даних для тренування динамічної VI нейронної мережи MPPT (v4)
 %
 % На відміну від generate_training_data (використовує G та T як входи),
-% тут генеруються вектори ознак (V, I, P, dV, dP) -> target_dV.
+% тут генеруються вектори ознак (V, V_prev, I, P, dV, dP) -> target_dV.
 %
 % Ідея: замість прямого прогнозу абсолютної оптимальної напруги мережа
-% вчиться робити корекцію напруги з поточного стану системи.
+% вчиться робити корекцію напруги з поточного стану системи та його історії.
 
 function [training_data, validation_data] = generate_training_data_vi(num_conditions)
     % Входи:
-    %   num_conditions - кількість умов (G, T) для сэмплування (за замовчуванням 200)
+    %   num_conditions - кількість умов (G, T) для сэмплування (за замовчуванням 350)
     %
     % Виходи:
-    %   training_data   - структура з полями .V_in, .I_in, .P_in, .dV, .dP, .target_dV (80%)
-    %   validation_data - структура з полями .V_in, .I_in, .P_in, .dV, .dP, .target_dV (20%)
+    %   training_data   - структура з полями .V_in, .V_prev, .I_in, .P_in, .dV, .dP, .target_dV (80%)
+    %   validation_data - структура з полями .V_in, .V_prev, .I_in, .P_in, .dV, .dP, .target_dV (20%)
 
     if nargin < 1
-        num_conditions = 200;
+        num_conditions = 350;  % Збільшена кількість умов для більшої мережі (v4)
     end
 
     this_dir    = fileparts(mfilename('fullpath'));
@@ -23,12 +23,12 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
     addpath(fullfile(project_dir, 'solar_model'));
 
     % Кількість локальних переходів для кожної умови (G, T)
-    N_per_condition = 24;
+    N_per_condition = 32;  % Збільшена кількість точок на умову
     action_limit = 1.2;
 
     total = num_conditions * N_per_condition;
 
-    fprintf('Генерація VI тренувальних даних...\n');
+    fprintf('Генерація VI тренувальних даних (v4)...\n');
     fprintf('Умов (G,T): %d, Точок на умову: %d, Всього: %d\n', ...
         num_conditions, N_per_condition, total);
 
@@ -51,6 +51,7 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
 
     % Масиви для зберігання
     V_in_all      = zeros(total, 1);
+    V_prev_all    = zeros(total, 1);  % НОВЕ: попередня напруга
     I_in_all      = zeros(total, 1);
     P_in_all      = zeros(total, 1);
     dV_all        = zeros(total, 1);
@@ -95,6 +96,7 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
             target_dV = max(-action_limit, min(action_limit, target_dV));
 
             V_in_all(idx)      = V_current;
+            V_prev_all(idx)    = V_prev;      % НОВЕ: зберігаємо попередню напругу
             I_in_all(idx)      = max(0, I_current);
             P_in_all(idx)      = max(0, P_current);
             dV_all(idx)        = dV;
@@ -125,6 +127,7 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
     val_idx     = shuffle_idx((num_train + 1):end);
 
     training_data.V_in      = V_in_all(train_idx)';
+    training_data.V_prev    = V_prev_all(train_idx)';  % НОВЕ: V_prev в тренувальні дані
     training_data.I_in      = I_in_all(train_idx)';
     training_data.P_in      = P_in_all(train_idx)';
     training_data.dV        = dV_all(train_idx)';
@@ -132,6 +135,7 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
     training_data.target_dV = target_dV_all(train_idx)';
 
     validation_data.V_in      = V_in_all(val_idx)';
+    validation_data.V_prev    = V_prev_all(val_idx)';  % НОВЕ: V_prev в валідаційні дані
     validation_data.I_in      = I_in_all(val_idx)';
     validation_data.P_in      = P_in_all(val_idx)';
     validation_data.dV        = dV_all(val_idx)';
@@ -141,8 +145,8 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
     fprintf('✓ Дані згенеровано: %d тренувальних, %d валідаційних\n', ...
         num_train, total - num_train);
 
-    % Збереження
-    save_path = fullfile(this_dir, 'training_data_vi_v3.mat');
+    % Збереження (v4 версія)
+    save_path = fullfile(this_dir, 'training_data_vi_v4.mat');
     save(save_path, 'training_data', 'validation_data', 'G_pts', 'T_pts');
     fprintf('✓ Збережено в %s\n\n', save_path);
 

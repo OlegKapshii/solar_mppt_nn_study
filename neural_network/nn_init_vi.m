@@ -15,16 +15,19 @@
 function network = nn_init_vi()
     % Ініціалізація мережі з випадковими вагами за Xavier методом
 
-    network.version = 3;
+    network.version = 4;
 
-    % Розміри шарів: 5 входів -> 16 -> 8 -> 1 вихід (deltaV)
-    network.layer_sizes = [5, 16, 8, 1];
+    % Розміри шарів: 6 входів -> 24 -> 12 -> 1 вихід (deltaV)
+    % Збільшена архітектура для кращого захоплення динаміки
+    network.layer_sizes = [6, 24, 12, 1];
     network.num_layers = length(network.layer_sizes);
 
     % Діапазони нормалізації входів
     % Масив 10 паралельних x 2 послідовних KC200GT
     network.V_in_min = 0;      % Мінімальна напруга [V]
     network.V_in_max = 70;     % Максимальна напруга [V] (вище за Voc масиву ~65.8V)
+    network.V_prev_min = 0;    % Мінімальна напруга попереднього кроку [V]
+    network.V_prev_max = 70;   % Максимальна напруга попереднього кроку [V]
     network.I_in_min = 0;      % Мінімальний струм [A]
     network.I_in_max = 100;    % Максимальний струм [A] (вище за Isc масиву ~85.5A)
     network.P_in_min = 0;      % Мінімальна потужність [W]
@@ -58,17 +61,17 @@ function network = nn_init_vi()
     network.activation{2} = 'tanh';      % Прихований шар 2
     network.activation{3} = 'linear';    % Вихідний шар
 
-    % Параметри тренування
-    network.learning_rate = 0.005;
+    % Параметри тренування (оптимізовані для покращеної генералізації)
+    network.learning_rate = 0.002;  % Зменшена швидкість навчання для більш стабільної конвергенції
     network.momentum      = 0.9;
-    network.num_epochs    = 300;
+    network.num_epochs    = 500;    % Збільшена кількість епох для кращого навчання
 
     % Інформація про мережу
-    network.name = 'Dynamic VI-based MPPT Neural Network';
+    network.name = 'Enhanced Dynamic VI-based MPPT Neural Network (v4)';
     network.architecture_description = ...
-        '5-16-8-1 (V,I,P,dV,dP -> 16 hidden -> 8 hidden -> deltaV)';
+        '6-24-12-1 (V,V_prev,I,P,dV,dP -> 24 hidden -> 12 hidden -> deltaV)';
     network.input_description = ...
-        'Входи: V, I, P, dV, dP; вихід: deltaV';
+        'Входи: V, V_prev, I, P, dV, dP; вихід: deltaV';
 
     network.loss_history = [];
 

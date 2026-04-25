@@ -1,66 +1,75 @@
 ЗВІТ АНАЛІЗУ MPPT АЛГОРИТМІВ
 ============================
 
-Дата: 25-Apr-2026 12:23:08
+Дата: 25-Apr-2026 13:44:12
 
 Ясний день
   P&O:   5578.32 Wh (99.96%), MAE=0.512 V
+  P&O+Pyr: 5580.18 Wh (99.99%), MAE=0.159 V
   NN-GT: 5580.54 Wh (100.00%), MAE=0.191 V
-  NN-VI Pure:   5563.74 Wh (99.70%), MAE=1.529 V
-  NN-VI Hybrid: 5576.26 Wh (99.92%), MAE=0.702 V
+  NN-VI Pure:   5576.41 Wh (99.92%), MAE=0.747 V
+  NN-VI Hybrid: 5578.80 Wh (99.97%), MAE=0.444 V
   Оптимум: 5580.65 Wh
 
 Хмарний день (раптові зміни)
   P&O:   3405.54 Wh (99.96%), MAE=0.503 V
+  P&O+Pyr: 3406.57 Wh (99.99%), MAE=0.135 V
   NN-GT: 3406.77 Wh (100.00%), MAE=0.145 V
-  NN-VI Pure:   3397.39 Wh (99.72%), MAE=1.378 V
-  NN-VI Hybrid: 3404.17 Wh (99.92%), MAE=0.700 V
+  NN-VI Pure:   3401.81 Wh (99.85%), MAE=1.113 V
+  NN-VI Hybrid: 3405.16 Wh (99.95%), MAE=0.626 V
   Оптимум: 3406.85 Wh
 
 Хмарний день (частіші хмари)
   P&O:   3420.63 Wh (99.93%), MAE=0.602 V
+  P&O+Pyr: 3422.00 Wh (99.97%), MAE=0.282 V
   NN-GT: 3423.06 Wh (100.00%), MAE=0.071 V
-  NN-VI Pure:   3413.89 Wh (99.73%), MAE=1.477 V
-  NN-VI Hybrid: 3420.32 Wh (99.92%), MAE=0.678 V
+  NN-VI Pure:   3417.38 Wh (99.83%), MAE=1.090 V
+  NN-VI Hybrid: 3421.00 Wh (99.94%), MAE=0.561 V
   Оптимум: 3423.09 Wh
 
 Змішаний сценарій
   P&O:   3883.40 Wh (99.96%), MAE=0.504 V
+  P&O+Pyr: 3883.97 Wh (99.97%), MAE=0.369 V
   NN-GT: 3884.99 Wh (100.00%), MAE=0.089 V
-  NN-VI Pure:   3873.00 Wh (99.69%), MAE=1.533 V
-  NN-VI Hybrid: 3883.04 Wh (99.95%), MAE=0.516 V
+  NN-VI Pure:   3879.91 Wh (99.87%), MAE=0.994 V
+  NN-VI Hybrid: 3883.75 Wh (99.97%), MAE=0.421 V
   Оптимум: 3885.01 Wh
 
 Зимовий день
   P&O:   954.26 Wh (99.98%), MAE=0.394 V
+  P&O+Pyr: 953.88 Wh (99.94%), MAE=0.532 V
   NN-GT: 954.39 Wh (99.99%), MAE=0.244 V
-  NN-VI Pure:   954.00 Wh (99.95%), MAE=0.569 V
-  NN-VI Hybrid: 953.95 Wh (99.94%), MAE=0.586 V
+  NN-VI Pure:   951.39 Wh (99.67%), MAE=1.612 V
+  NN-VI Hybrid: 952.38 Wh (99.78%), MAE=1.294 V
   Оптимум: 954.49 Wh
 
 Весняний день
   P&O:   3395.06 Wh (99.96%), MAE=0.510 V
+  P&O+Pyr: 3394.97 Wh (99.96%), MAE=0.479 V
   NN-GT: 3396.40 Wh (100.00%), MAE=0.079 V
-  NN-VI Pure:   3387.70 Wh (99.74%), MAE=1.452 V
-  NN-VI Hybrid: 3394.86 Wh (99.95%), MAE=0.523 V
+  NN-VI Pure:   3390.53 Wh (99.83%), MAE=1.118 V
+  NN-VI Hybrid: 3395.27 Wh (99.97%), MAE=0.432 V
   Оптимум: 3396.42 Wh
 
 Stress: фронт + провали
   P&O:   3149.85 Wh (99.88%), MAE=0.656 V
+  P&O+Pyr: 3148.60 Wh (99.84%), MAE=0.791 V
   NN-GT: 3153.71 Wh (100.00%), MAE=0.128 V
-  NN-VI Pure:   3143.69 Wh (99.68%), MAE=1.381 V
-  NN-VI Hybrid: 3146.46 Wh (99.77%), MAE=0.796 V
+  NN-VI Pure:   3148.21 Wh (99.82%), MAE=1.165 V
+  NN-VI Hybrid: 3147.60 Wh (99.80%), MAE=0.768 V
   Оптимум: 3153.77 Wh
 
 Stress: швидке мерехтіння
   P&O:   2681.02 Wh (99.88%), MAE=0.760 V
+  P&O+Pyr: 2680.30 Wh (99.86%), MAE=0.855 V
   NN-GT: 2684.08 Wh (100.00%), MAE=0.169 V
-  NN-VI Pure:   2678.03 Wh (99.77%), MAE=1.215 V
-  NN-VI Hybrid: 2682.90 Wh (99.95%), MAE=0.475 V
+  NN-VI Pure:   2678.71 Wh (99.80%), MAE=1.291 V
+  NN-VI Hybrid: 2682.76 Wh (99.95%), MAE=0.476 V
   Оптимум: 2684.18 Wh
 
 СЕРЕДНІ ЗНАЧЕННЯ
 P&O eff: 99.938% | MAE: 0.555 V
+P&O+Pyr eff: 99.939% | MAE: 0.450 V
 NN-GT eff: 99.997% | MAE: 0.139 V
-NN-VI Pure eff: 99.748% | MAE: 1.317 V
-NN-VI Hybrid eff: 99.916% | MAE: 0.622 V
+NN-VI Pure eff: 99.825% | MAE: 1.141 V
+NN-VI Hybrid eff: 99.915% | MAE: 0.628 V

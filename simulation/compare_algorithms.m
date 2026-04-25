@@ -1,9 +1,10 @@
-% Порівняння MPPT алгоритмів із ablation-дослідженням
+% Порівняння MPPT алгоритмів із дослідженням відхилень структури
 % Алгоритми:
 %   1) P&O
-%   2) NN-GT (входи G,T)
-%   3) NN-VI Pure (входи V,I,P,dV,dP)
-%   4) NN-VI Hybrid (NN-VI + локальна P&O корекція)
+%   2) P&O + піранометр (адаптивний P&O)
+%   3) NN-GT (входи G,T)
+%   4) NN-VI Pure (входи V,V_prev,I,P,dV,dP)
+%   5) NN-VI Hybrid (NN-VI + локальна P&O корекція)
 
 clear; close all; clc;
 
@@ -18,7 +19,7 @@ addpath(fullfile(project_dir, 'data_generation'));
 addpath(sim_dir);
 
 fprintf('=== ПОРІВНЮВАЛЬНЕ ДОСЛІДЖЕННЯ MPPT АЛГОРИТМІВ ===\n');
-fprintf('Алгоритми: P&O | NN-GT | NN-VI Pure | NN-VI Hybrid\n\n');
+fprintf('Алгоритми: P&O | P&O+Pyr | NN-GT | NN-VI Pure | NN-VI Hybrid\n\n');
 
 % NN-GT
 model_file = fullfile(project_dir, 'neural_network', 'trained_network.mat');
@@ -29,13 +30,13 @@ loaded_model = load(model_file);
 network = loaded_model.network;
 fprintf('✓ NN-GT завантажена\n');
 
-% NN-VI v3
-model_vi_file = fullfile(project_dir, 'neural_network', 'trained_network_vi_v3.mat');
-data_vi_file = fullfile(project_dir, 'data_generation', 'training_data_vi_v3.mat');
+% NN-VI v4 (покращена версія з V_prev входом та більшою архітектурою)
+model_vi_file = fullfile(project_dir, 'neural_network', 'trained_network_vi_v4.mat');
+data_vi_file = fullfile(project_dir, 'data_generation', 'training_data_vi_v4.mat');
 
 if ~exist(data_vi_file, 'file')
-    fprintf('VI train-дані не знайдено. Генеруємо...\n');
-    [training_data_vi, validation_data_vi] = generate_training_data_vi(260);
+    fprintf('VI train-дані v4 не знайдено. Генеруємо...\n');
+    [training_data_vi, validation_data_vi] = generate_training_data_vi(350);
 else
     loaded_data_vi = load(data_vi_file);
     training_data_vi = loaded_data_vi.training_data;
@@ -48,13 +49,13 @@ if ~exist(model_vi_file, 'file')
 else
     loaded_vi = load(model_vi_file);
     network_vi = loaded_vi.network_vi;
-    if ~isfield(network_vi, 'version') || network_vi.version < 3
+    if ~isfield(network_vi, 'version') || network_vi.version < 4
         retrain_vi = true;
     end
 end
 
 if retrain_vi
-    fprintf('Навчаємо NN-VI v3...\n');
+    fprintf('Навчаємо NN-VI v4 (покращена архітектура)...\n');
     network_vi = nn_init_vi();
     [network_vi, training_info_vi] = nn_train_vi(network_vi, training_data_vi, validation_data_vi); %#ok<NASGU>
     save(model_vi_file, 'network_vi', 'training_info_vi');
@@ -70,7 +71,7 @@ if isfield(network_vi, 'action_limit')
 else
     action_limit = 1.2;
 end
-fprintf('✓ NN-VI v3 завантажена (action_limit=%.2f V)\n\n', action_limit);
+fprintf('✓ NN-VI v4 завантажена (архітектура 6-24-12-1, action_limit=%.2f V)\n\n', action_limit);
 
 scenarios = {
     struct('name', 'Ясний день', 'cloud', 'clear', 'day', 170, 'stress', 'none'),
@@ -151,16 +152,19 @@ for scenario_idx = 1:length(scenarios)
     T_panel = max(15, min(60, T_panel));
 
     V_po = zeros(1, num_steps);        P_po = zeros(1, num_steps);
+    V_po_pyr = zeros(1, num_steps);    P_po_pyr = zeros(1, num_steps);
     V_nn = zeros(1, num_steps);        P_nn = zeros(1, num_steps);
     V_vi_pure = zeros(1, num_steps);   P_vi_pure = zeros(1, num_steps);
     V_vi_hybrid = zeros(1, num_steps); P_vi_hybrid = zeros(1, num_steps);
     V_optimal = zeros(1, num_steps);   P_optimal = zeros(1, num_steps);
 
     V_po(1) = 40;
+    V_po_pyr(1) = 40;
     V_vi_pure(1) = 40;
     V_vi_hybrid(1) = 40;
 
     V_po_prev = 40;      P_po_prev = 0;
+    V_po_pyr_prev = 40;  P_po_pyr_prev = 0;
     V_pure_prev = 40;    P_pure_prev = 0;
     V_hyb_prev = 40;     P_hyb_prev = 0;
 
@@ -197,6 +201,25 @@ for scenario_idx = 1:length(scenarios)
         end
         update_counter = mod(update_counter + 1, update_period);
 
+        % P&O + піранометр (адаптивний)
+        [~, p_at_v_po_pyr, ~] = calculate_panel_output(G, T, V_po_pyr(i));
+        P_po_pyr(i) = p_at_v_po_pyr;
+
+        if update_counter == 0
+            G_prev = irradiance_cloudy(max(1, i-1));
+            v_new_pyr = mppt_po_adaptive( ...
+                V_po_pyr_prev, P_po_pyr_prev, V_po_pyr(i), P_po_pyr(i), G, G_prev, dV_po);
+            if i < num_steps
+                V_po_pyr(i+1) = v_new_pyr;
+            end
+            P_po_pyr_prev = P_po_pyr(i);
+            V_po_pyr_prev = V_po_pyr(i);
+        else
+            if i < num_steps
+                V_po_pyr(i+1) = V_po_pyr(i);
+            end
+        end
+
         % NN-GT
         V_nn(i) = nn_forward(network, [G; T]);
         [~, p_at_v_nn, ~] = calculate_panel_output(G, T, V_nn(i));
@@ -207,14 +230,17 @@ for scenario_idx = 1:length(scenarios)
         P_vi_pure(i) = p_pure;
 
         if i == 1
+            V_vi_pure_prev = V_vi_pure(i);  % На першому кроці попередня напруга = поточна
             dV_pure = 0;
             dP_pure = 0;
         else
+            V_vi_pure_prev = V_vi_pure(i-1);
             dV_pure = V_vi_pure(i) - V_vi_pure(i-1);
             dP_pure = P_vi_pure(i) - P_vi_pure(i-1);
         end
 
-        dv_pure = nn_forward_vi(network_vi, [V_vi_pure(i); i_pure; P_vi_pure(i); dV_pure; dP_pure]);
+        % Нове: додаємо V_prev (попередня напруга) як 2-й вхід
+        dv_pure = nn_forward_vi(network_vi, [V_vi_pure(i); V_vi_pure_prev; i_pure; P_vi_pure(i); dV_pure; dP_pure]);
         if abs(dP_pure) < 0.5
             dv_pure = 0.5 * dv_pure;
         end
@@ -225,22 +251,23 @@ for scenario_idx = 1:length(scenarios)
             V_vi_pure(i+1) = V_vi_pure(i) + dv_pure;
             V_vi_pure(i+1) = max(15, min(65, V_vi_pure(i+1)));
         end
-        V_pure_prev = V_vi_pure(i);
-        P_pure_prev = P_vi_pure(i);
 
         % NN-VI Hybrid
         [~, p_hyb, i_hyb] = calculate_panel_output(G, T, V_vi_hybrid(i));
         P_vi_hybrid(i) = p_hyb;
 
         if i == 1
+            V_vi_hybrid_prev = V_vi_hybrid(i);  % На першому кроці попередня напруга = поточна
             dV_hyb = 0;
             dP_hyb = 0;
         else
+            V_vi_hybrid_prev = V_vi_hybrid(i-1);
             dV_hyb = V_vi_hybrid(i) - V_vi_hybrid(i-1);
             dP_hyb = P_vi_hybrid(i) - P_vi_hybrid(i-1);
         end
 
-        dv_nn = nn_forward_vi(network_vi, [V_vi_hybrid(i); i_hyb; P_vi_hybrid(i); dV_hyb; dP_hyb]);
+        % Нове: додаємо V_prev (попередня напруга) як 2-й вхід
+        dv_nn = nn_forward_vi(network_vi, [V_vi_hybrid(i); V_vi_hybrid_prev; i_hyb; P_vi_hybrid(i); dV_hyb; dP_hyb]);
         V_po_like = mppt_po(V_hyb_prev, P_hyb_prev, V_vi_hybrid(i), P_vi_hybrid(i), 0.6);
         dv_po = V_po_like - V_vi_hybrid(i);
 
@@ -270,22 +297,26 @@ for scenario_idx = 1:length(scenarios)
     end
 
     energy_po = sum(P_po) * dt / 3600;
+    energy_po_pyr = sum(P_po_pyr) * dt / 3600;
     energy_nn = sum(P_nn) * dt / 3600;
     energy_vi_pure = sum(P_vi_pure) * dt / 3600;
     energy_vi_hybrid = sum(P_vi_hybrid) * dt / 3600;
     energy_opt = sum(P_optimal) * dt / 3600;
 
     eff_po = 100 * energy_po / max(energy_opt, eps);
+    eff_po_pyr = 100 * energy_po_pyr / max(energy_opt, eps);
     eff_nn = 100 * energy_nn / max(energy_opt, eps);
     eff_vi_pure = 100 * energy_vi_pure / max(energy_opt, eps);
     eff_vi_hybrid = 100 * energy_vi_hybrid / max(energy_opt, eps);
 
     err_po = mean(abs(V_po - V_optimal));
+    err_po_pyr = mean(abs(V_po_pyr - V_optimal));
     err_nn = mean(abs(V_nn - V_optimal));
     err_vi_pure = mean(abs(V_vi_pure - V_optimal));
     err_vi_hybrid = mean(abs(V_vi_hybrid - V_optimal));
 
     osc_po = std(diff(V_po));
+    osc_po_pyr = std(diff(V_po_pyr));
     osc_nn = std(diff(V_nn));
     osc_vi_pure = std(diff(V_vi_pure));
     osc_vi_hybrid = std(diff(V_vi_hybrid));
@@ -305,6 +336,9 @@ for scenario_idx = 1:length(scenarios)
     result.V_po = V_po;
     result.P_po = P_po;
 
+    result.V_po_pyr = V_po_pyr;
+    result.P_po_pyr = P_po_pyr;
+
     result.V_nn = V_nn;
     result.P_nn = P_nn;
 
@@ -317,22 +351,26 @@ for scenario_idx = 1:length(scenarios)
     result.deltaV_nn_vi = dV_cmd_hyb;
 
     result.metrics.energy_po = energy_po;
+    result.metrics.energy_po_pyr = energy_po_pyr;
     result.metrics.energy_nn = energy_nn;
     result.metrics.energy_nn_vi_pure = energy_vi_pure;
     result.metrics.energy_nn_vi = energy_vi_hybrid;
     result.metrics.energy_optimal = energy_opt;
 
     result.metrics.efficiency_po = eff_po;
+    result.metrics.efficiency_po_pyr = eff_po_pyr;
     result.metrics.efficiency_nn = eff_nn;
     result.metrics.efficiency_nn_vi_pure = eff_vi_pure;
     result.metrics.efficiency_nn_vi = eff_vi_hybrid;
 
     result.metrics.error_po = err_po;
+    result.metrics.error_po_pyr = err_po_pyr;
     result.metrics.error_nn = err_nn;
     result.metrics.error_nn_vi_pure = err_vi_pure;
     result.metrics.error_nn_vi = err_vi_hybrid;
 
     result.metrics.oscill_po = osc_po;
+    result.metrics.oscill_po_pyr = osc_po_pyr;
     result.metrics.oscill_nn = osc_nn;
     result.metrics.oscill_nn_vi_pure = osc_vi_pure;
     result.metrics.oscill_nn_vi = osc_vi_hybrid;
@@ -341,26 +379,26 @@ for scenario_idx = 1:length(scenarios)
 
     comparison_table(end+1, :) = { ...
         scenario.name, ...
-        energy_po, energy_nn, energy_vi_pure, energy_vi_hybrid, energy_opt, ...
-        eff_po, eff_nn, eff_vi_pure, eff_vi_hybrid, ...
-        err_po, err_nn, err_vi_pure, err_vi_hybrid ...
+        energy_po, energy_po_pyr, energy_nn, energy_vi_pure, energy_vi_hybrid, energy_opt, ...
+        eff_po, eff_po_pyr, eff_nn, eff_vi_pure, eff_vi_hybrid, ...
+        err_po, err_po_pyr, err_nn, err_vi_pure, err_vi_hybrid ...
     }; %#ok<AGROW>
 
-    fprintf('  ✓ Енергія [Wh] P&O %.1f | NN-GT %.1f | VI-Pure %.1f | VI-Hybrid %.1f | Opt %.1f\n', ...
-        energy_po, energy_nn, energy_vi_pure, energy_vi_hybrid, energy_opt);
-    fprintf('    Ефективність [%%] P&O %.2f | NN-GT %.2f | VI-Pure %.2f | VI-Hybrid %.2f\n\n', ...
-        eff_po, eff_nn, eff_vi_pure, eff_vi_hybrid);
+    fprintf('  ✓ Енергія [Wh] P&O %.1f | P&O+Pyr %.1f | NN-GT %.1f | VI-Pure %.1f | VI-Hybrid %.1f | Opt %.1f\n', ...
+        energy_po, energy_po_pyr, energy_nn, energy_vi_pure, energy_vi_hybrid, energy_opt);
+    fprintf('    Ефективність [%%] P&O %.2f | P&O+Pyr %.2f | NN-GT %.2f | VI-Pure %.2f | VI-Hybrid %.2f\n\n', ...
+        eff_po, eff_po_pyr, eff_nn, eff_vi_pure, eff_vi_hybrid);
 end
 
 fprintf('=== ТАБЛИЦЯ ПОРІВНЯННЯ ===\n\n');
-fprintf('%30s | %8s | %8s | %8s | %8s | %8s\n', ...
-    'Сценарій', 'P&O', 'NN-GT', 'VI-Pure', 'VI-Hyb', 'Opt');
-fprintf(repmat('-', 1, 95));
+fprintf('%30s | %8s | %8s | %8s | %8s | %8s | %8s\n', ...
+    'Сценарій', 'P&O', 'P&O+Pyr', 'NN-GT', 'VI-Pure', 'VI-Hyb', 'Opt');
+fprintf(repmat('-', 1, 107));
 fprintf('\n');
 for i = 1:size(comparison_table, 1)
-    fprintf('%30s | %8.1f | %8.1f | %8.1f | %8.1f | %8.1f\n', ...
+    fprintf('%30s | %8.1f | %8.1f | %8.1f | %8.1f | %8.1f | %8.1f\n', ...
         comparison_table{i,1}, comparison_table{i,2}, comparison_table{i,3}, ...
-        comparison_table{i,4}, comparison_table{i,5}, comparison_table{i,6});
+        comparison_table{i,4}, comparison_table{i,5}, comparison_table{i,6}, comparison_table{i,7});
 end
 
 save(fullfile(sim_dir, 'comparison_results.mat'), 'all_results', 'comparison_table');
@@ -379,83 +417,92 @@ xlabel('Час [год]'); ylabel('Радіація [W/m^2]'); title('Соняч
 subplot(3,3,2);
 plot(time_hours, result_selected.V_optimal, 'g-', 'LineWidth', 2); hold on;
 plot(time_hours, result_selected.V_po, 'b--', 'LineWidth', 1.2);
+plot(time_hours, result_selected.V_po_pyr, 'k-', 'LineWidth', 1.2);
 plot(time_hours, result_selected.V_nn, 'r-.', 'LineWidth', 1.2);
 plot(time_hours, result_selected.V_nn_vi_pure, 'c:', 'LineWidth', 1.8);
 plot(time_hours, result_selected.V_nn_vi, 'm-', 'LineWidth', 1.2);
 xlabel('Час [год]'); ylabel('Напруга [V]'); title('Напруга');
-legend('Оптимум','P&O','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
+legend('Оптимум','P&O','P&O+Pyr','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
 
 subplot(3,3,3);
 plot(time_hours, result_selected.P_optimal, 'g-', 'LineWidth', 2); hold on;
 plot(time_hours, result_selected.P_po, 'b--', 'LineWidth', 1.2);
+plot(time_hours, result_selected.P_po_pyr, 'k-', 'LineWidth', 1.2);
 plot(time_hours, result_selected.P_nn, 'r-.', 'LineWidth', 1.2);
 plot(time_hours, result_selected.P_nn_vi_pure, 'c:', 'LineWidth', 1.8);
 plot(time_hours, result_selected.P_nn_vi, 'm-', 'LineWidth', 1.2);
 xlabel('Час [год]'); ylabel('Потужність [W]'); title('Потужність');
-legend('Оптимум','P&O','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
+legend('Оптимум','P&O','P&O+Pyr','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
 
 subplot(3,3,4);
 semilogy(time_hours, abs(result_selected.V_po - result_selected.V_optimal), 'b--', 'LineWidth', 1.2); hold on;
+semilogy(time_hours, abs(result_selected.V_po_pyr - result_selected.V_optimal), 'k-', 'LineWidth', 1.2);
 semilogy(time_hours, abs(result_selected.V_nn - result_selected.V_optimal), 'r-.', 'LineWidth', 1.2);
 semilogy(time_hours, abs(result_selected.V_nn_vi_pure - result_selected.V_optimal), 'c:', 'LineWidth', 1.8);
 semilogy(time_hours, abs(result_selected.V_nn_vi - result_selected.V_optimal), 'm-', 'LineWidth', 1.2);
 xlabel('Час [год]'); ylabel('|V-Vopt| [V]'); title('Помилка напруги (log)');
-legend('P&O','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
+legend('P&O','P&O+Pyr','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
 
 subplot(3,3,5);
 eff_po = 100 * result_selected.P_po ./ max(result_selected.P_optimal, eps);
+eff_po_pyr = 100 * result_selected.P_po_pyr ./ max(result_selected.P_optimal, eps);
 eff_nn = 100 * result_selected.P_nn ./ max(result_selected.P_optimal, eps);
 eff_vi_p = 100 * result_selected.P_nn_vi_pure ./ max(result_selected.P_optimal, eps);
 eff_vi_h = 100 * result_selected.P_nn_vi ./ max(result_selected.P_optimal, eps);
 plot(time_hours, eff_po, 'b--', 'LineWidth', 1.2); hold on;
+plot(time_hours, eff_po_pyr, 'k-', 'LineWidth', 1.2);
 plot(time_hours, eff_nn, 'r-.', 'LineWidth', 1.2);
 plot(time_hours, eff_vi_p, 'c:', 'LineWidth', 1.8);
 plot(time_hours, eff_vi_h, 'm-', 'LineWidth', 1.2);
 xlabel('Час [год]'); ylabel('Ефективність [%]'); title('Локальна ефективність');
-legend('P&O','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on; ylim([80 105]);
+legend('P&O','P&O+Pyr','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on; ylim([80 105]);
 
 subplot(3,3,6);
 plot(time_hours, cumsum(result_selected.P_optimal)/3600, 'g-', 'LineWidth', 2); hold on;
 plot(time_hours, cumsum(result_selected.P_po)/3600, 'b--', 'LineWidth', 1.2);
+plot(time_hours, cumsum(result_selected.P_po_pyr)/3600, 'k-', 'LineWidth', 1.2);
 plot(time_hours, cumsum(result_selected.P_nn)/3600, 'r-.', 'LineWidth', 1.2);
 plot(time_hours, cumsum(result_selected.P_nn_vi_pure)/3600, 'c:', 'LineWidth', 1.8);
 plot(time_hours, cumsum(result_selected.P_nn_vi)/3600, 'm-', 'LineWidth', 1.2);
 xlabel('Час [год]'); ylabel('Енергія [Wh]'); title('Кумулятивна енергія');
-legend('Opt','P&O','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
+legend('Opt','P&O','P&O+Pyr','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
 
 names = cellfun(@(r) r.scenario_name, all_results, 'UniformOutput', false);
 po_eff = cellfun(@(r) r.metrics.efficiency_po, all_results);
+po_pyr_eff = cellfun(@(r) r.metrics.efficiency_po_pyr, all_results);
 nn_eff = cellfun(@(r) r.metrics.efficiency_nn, all_results);
 vi_p_eff = cellfun(@(r) r.metrics.efficiency_nn_vi_pure, all_results);
 vi_h_eff = cellfun(@(r) r.metrics.efficiency_nn_vi, all_results);
 
 subplot(3,3,7);
-bar([po_eff; nn_eff; vi_p_eff; vi_h_eff]');
+bar([po_eff; po_pyr_eff; nn_eff; vi_p_eff; vi_h_eff]');
 set(gca, 'XTickLabel', names); xtickangle(40);
 ylabel('Ефективність [%]'); title('Порівняння ефективності');
-legend('P&O','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
+legend('P&O','P&O+Pyr','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
 
 po_err = cellfun(@(r) r.metrics.error_po, all_results);
+po_pyr_err = cellfun(@(r) r.metrics.error_po_pyr, all_results);
 nn_err = cellfun(@(r) r.metrics.error_nn, all_results);
 vi_p_err = cellfun(@(r) r.metrics.error_nn_vi_pure, all_results);
 vi_h_err = cellfun(@(r) r.metrics.error_nn_vi, all_results);
 
 subplot(3,3,8);
-bar([po_err; nn_err; vi_p_err; vi_h_err]');
+bar([po_err; po_pyr_err; nn_err; vi_p_err; vi_h_err]');
 set(gca, 'XTickLabel', names); xtickangle(40);
 ylabel('MAE напруги [V]'); title('Похибка напруги');
-legend('P&O','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
+legend('P&O','P&O+Pyr','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
 
 po_osc = cellfun(@(r) r.metrics.oscill_po, all_results);
+po_pyr_osc = cellfun(@(r) r.metrics.oscill_po_pyr, all_results);
 nn_osc = cellfun(@(r) r.metrics.oscill_nn, all_results);
 vi_p_osc = cellfun(@(r) r.metrics.oscill_nn_vi_pure, all_results);
 vi_h_osc = cellfun(@(r) r.metrics.oscill_nn_vi, all_results);
 
 subplot(3,3,9);
-bar([po_osc; nn_osc; vi_p_osc; vi_h_osc]');
+bar([po_osc; po_pyr_osc; nn_osc; vi_p_osc; vi_h_osc]');
 set(gca, 'XTickLabel', names); xtickangle(40);
 ylabel('std(dV) [V]'); title('Стабільність напруги');
-legend('P&O','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
+legend('P&O','P&O+Pyr','NN-GT','NN-VI Pure','NN-VI Hybrid','Location','best'); grid on;
 
 sgtitle(sprintf('Ablation MPPT: %s', result_selected.scenario_name), 'FontSize', 14, 'FontWeight', 'bold');
 
