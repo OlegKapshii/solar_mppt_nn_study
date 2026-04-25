@@ -13,10 +13,13 @@ addpath(fullfile(project_dir, 'neural_network'));
 addpath(fullfile(project_dir, 'data_generation'));
 addpath(sim_dir);
 
-fprintf('=== Симуляція MPPT системи ===\n\n');
+fprintf('=== Симуляція MPPT системи ===\n');
+fprintf('Алгоритми: P&O | NN-GT (G,T входи) | NN-VI (V,I,P,dV,dP входи)\n\n');
 
-data_file = fullfile(project_dir, 'data_generation', 'training_data.mat');
-model_file = fullfile(project_dir, 'neural_network', 'trained_network.mat');
+data_file    = fullfile(project_dir, 'data_generation', 'training_data.mat');
+model_file   = fullfile(project_dir, 'neural_network', 'trained_network.mat');
+data_vi_file  = fullfile(project_dir, 'data_generation', 'training_data_vi_v2.mat');
+model_vi_file = fullfile(project_dir, 'neural_network', 'trained_network_vi_v2.mat');
 
 % КРОК 1: Генерація даних (якщо ще не існує)
 if ~exist(data_file, 'file')
@@ -31,25 +34,52 @@ else
     fprintf('✓ Дані завантажені\n\n');
 end
 
-% КРОК 2: Ініціалізація та тренування нейромережи
-fprintf('Ініціалізація нейронної мережи...\n');
+% КРОК 2: Ініціалізація та тренування NN-GT (G, T → V_opt)
+fprintf('--- NN-GT (входи: освітленість G, температура T) ---\n');
 network = nn_init();
 
-% Перевіряємо чи існує натренована мережа
 if ~exist(model_file, 'file')
-    fprintf('Натренованої мережі не знайдено.\n');
-    fprintf('Розпочинаємо тренування...\n\n');
-    
+    fprintf('Натренованої мережі NN-GT не знайдено. Розпочинаємо тренування...\n\n');
     [network, training_info] = nn_train(network, training_data, validation_data);
-    
-    % Зберігаємо натреновану мережу
     save(model_file, 'network', 'training_info');
-    fprintf('\n✓ Мережа натренована і збережена\n\n');
+    fprintf('\n✓ NN-GT натренована і збережена\n\n');
 else
-    fprintf('Завантажуємо натреновану мережу...\n');
+    fprintf('Завантажуємо натреновану мережу NN-GT...\n');
     loaded_model = load(model_file);
     network = loaded_model.network;
-    fprintf('✓ Мережа завантажена\n\n');
+    fprintf('✓ NN-GT завантажена\n\n');
+end
+
+% КРОК 2б: Ініціалізація та тренування NN-VI (V, I, P, dV, dP → deltaV)
+fprintf('--- NN-VI (входи: V, I, P, dV, dP; вихід: deltaV) ---\n');
+network_vi = nn_init_vi();
+
+if ~exist(data_vi_file, 'file')
+    fprintf('VI тренувальних даних не знайдено. Генеруємо...\n\n');
+    [training_data_vi, validation_data_vi] = generate_training_data_vi(200);
+else
+    fprintf('Завантажуємо VI тренувальні дані...\n');
+    loaded_vi = load(data_vi_file);
+    training_data_vi   = loaded_vi.training_data;
+    validation_data_vi = loaded_vi.validation_data;
+    fprintf('✓ VI дані завантажені\n\n');
+end
+
+if ~exist(model_vi_file, 'file')
+    fprintf('Натренованої мережі NN-VI не знайдено. Розпочинаємо тренування...\n\n');
+    [network_vi, training_info_vi] = nn_train_vi(network_vi, training_data_vi, validation_data_vi);
+    save(model_vi_file, 'network_vi', 'training_info_vi');
+    fprintf('\n✓ NN-VI натренована і збережена\n\n');
+else
+    fprintf('Завантажуємо натреновану мережу NN-VI...\n');
+    loaded_vi_model = load(model_vi_file);
+    network_vi = loaded_vi_model.network_vi;
+    if ~isfield(network_vi, 'version') || network_vi.version < 2
+        fprintf('Знайдена застаріла NN-VI модель. Перетреновуємо...\n\n');
+        [network_vi, training_info_vi] = nn_train_vi(network_vi, training_data_vi, validation_data_vi);
+        save(model_vi_file, 'network_vi', 'training_info_vi');
+    end
+    fprintf('✓ NN-VI завантажена\n\n');
 end
 
 % КРОК 3: Налаштування сценарію симуляції
@@ -125,10 +155,17 @@ V_po(1) = 40;  % Стартова напруга [V]
 V_po_prev = V_po(1);
 P_po_prev = 0;
 
-% NN MPPT
+% NN-GT MPPT (використовує G та T — нереалістично)
 V_nn = zeros(1, num_steps);
 I_nn = zeros(1, num_steps);
 P_nn = zeros(1, num_steps);
+
+% NN-VI MPPT (використовує лише доступні вимірювання)
+V_nn_vi = zeros(1, num_steps);
+I_nn_vi = zeros(1, num_steps);
+P_nn_vi = zeros(1, num_steps);
+V_nn_vi(1) = 40;  % Стартова напруга [V] (така сама як P&O)
+deltaV_nn_vi = zeros(1, num_steps);
 
 % Оптимальні значення (теоретичні)
 V_optimal = zeros(1, num_steps);
@@ -176,14 +213,36 @@ for i = 1:num_steps
     
     update_counter = mod(update_counter + 1, update_period);
     
-    % === NN MPPT ===
-    % Пряме прогнозування оптимальної напруги
+    % === NN-GT MPPT (нереалістичний: знає G та T) ===
+    % Пряме прогнозування оптимальної напруги за освітленістю та температурою
     inputs = [G; T];
     V_nn(i) = nn_forward(network, inputs);
-    
-    % Розраховуємо вихід при NN напрузі
+
+    % Розраховуємо вихід при NN-GT напрузі
     [~, P_at_V_nn, I_nn(i)] = calculate_panel_output(G, T, V_nn(i));
     P_nn(i) = P_at_V_nn;
+
+    % === NN-VI MPPT (реалістичний: використовує поточні V, I, P, dV, dP) ===
+    [~, P_at_V_nn_vi, I_nn_vi(i)] = calculate_panel_output(G, T, V_nn_vi(i));
+    P_nn_vi(i) = P_at_V_nn_vi;
+
+    if i == 1
+        dV_nn_vi_curr = 0;
+        dP_nn_vi_curr = 0;
+    else
+        dV_nn_vi_curr = V_nn_vi(i) - V_nn_vi(i - 1);
+        dP_nn_vi_curr = P_nn_vi(i) - P_nn_vi(i - 1);
+    end
+
+    % Прогнозуємо не абсолютну напругу, а крок корекції deltaV
+    deltaV_cmd = nn_forward_vi(network_vi, [V_nn_vi(i); I_nn_vi(i); P_nn_vi(i); dV_nn_vi_curr; dP_nn_vi_curr]);
+    deltaV_cmd = max(-2, min(2, deltaV_cmd));
+    deltaV_nn_vi(i) = deltaV_cmd;
+
+    if i < num_steps
+        V_nn_vi(i + 1) = V_nn_vi(i) + deltaV_cmd;
+        V_nn_vi(i + 1) = max(15, min(65, V_nn_vi(i + 1)));
+    end
     
     % Вивід прогресу
     if mod(i, max(1, floor(num_steps / 10))) == 0
@@ -197,21 +256,25 @@ fprintf('\n✓ Симуляція завершена\n\n');
 fprintf('Розрахунок метрик...\n');
 
 % Енергія за період
-energy_po = sum(P_po) * dt / 3600;      % [Wh]
-energy_nn = sum(P_nn) * dt / 3600;      % [Wh]
-energy_optimal = sum(P_optimal) * dt / 3600;  % [Wh]
+energy_po    = sum(P_po)    * dt / 3600;  % [Wh]
+energy_nn    = sum(P_nn)    * dt / 3600;  % [Wh]
+energy_nn_vi = sum(P_nn_vi) * dt / 3600;  % [Wh]
+energy_optimal = sum(P_optimal) * dt / 3600;
 
 % Ефективність
-efficiency_po = energy_po / max(energy_optimal, eps) * 100;
-efficiency_nn = energy_nn / max(energy_optimal, eps) * 100;
+efficiency_po    = energy_po    / max(energy_optimal, eps) * 100;
+efficiency_nn    = energy_nn    / max(energy_optimal, eps) * 100;
+efficiency_nn_vi = energy_nn_vi / max(energy_optimal, eps) * 100;
 
 % Осциляції напруги
-oscill_po = std(diff(V_po));
-oscill_nn = std(diff(V_nn));
+oscill_po    = std(diff(V_po));
+oscill_nn    = std(diff(V_nn));
+oscill_nn_vi = std(diff(V_nn_vi));
 
 % Похибка напруги від оптимальної
-error_po = mean(abs(V_po - V_optimal));
-error_nn = mean(abs(V_nn - V_optimal));
+error_po    = mean(abs(V_po    - V_optimal));
+error_nn    = mean(abs(V_nn    - V_optimal));
+error_nn_vi = mean(abs(V_nn_vi - V_optimal));
 
 fprintf('✓ Метрики розраховані\n\n');
 
@@ -219,20 +282,25 @@ fprintf('✓ Метрики розраховані\n\n');
 fprintf('=== РЕЗУЛЬТАТИ СИМУЛЯЦІЇ ===\n\n');
 fprintf('Вироблена енергія за період:\n');
 fprintf('  P&O MPPT:      %.2f Wh\n', energy_po);
-fprintf('  NN MPPT:       %.2f Wh\n', energy_nn);
+fprintf('  NN-GT MPPT:    %.2f Wh  (входи: G, T — нереалістично)\n', energy_nn);
+fprintf('  NN-VI MPPT:    %.2f Wh  (входи: V, I — реалістично)\n', energy_nn_vi);
 fprintf('  Оптимальна:    %.2f Wh\n', energy_optimal);
 
 fprintf('\nЕфективність відслідковування:\n');
 fprintf('  P&O MPPT:      %.2f%%\n', efficiency_po);
-fprintf('  NN MPPT:       %.2f%%\n', efficiency_nn);
+fprintf('  NN-GT MPPT:    %.2f%%\n', efficiency_nn);
+fprintf('  NN-VI MPPT:    %.2f%%\n', efficiency_nn_vi);
 
 fprintf('\nПохибка напруги від оптимальної (MAE):\n');
 fprintf('  P&O MPPT:      %.2f V\n', error_po);
-fprintf('  NN MPPT:       %.2f V\n', error_nn);
+fprintf('  NN-GT MPPT:    %.2f V\n', error_nn);
+fprintf('  NN-VI MPPT:    %.2f V\n', error_nn_vi);
 
 fprintf('\nОсциляції напруги (std):\n');
 fprintf('  P&O MPPT:      %.4f V\n', oscill_po);
-fprintf('  NN MPPT:       %.4f V\n', oscill_nn);
+fprintf('  NN-GT MPPT:    %.4f V\n', oscill_nn);
+fprintf('  NN-VI MPPT:    %.4f V\n', oscill_nn_vi);
+fprintf('  Середній |deltaV| NN-VI: %.4f V\n', mean(abs(deltaV_nn_vi)));
 
 % КРОК 11: Збереження результатів
 fprintf('\nЗбереження результатів...\n');
@@ -251,14 +319,21 @@ results.P_po = P_po;
 results.V_nn = V_nn;
 results.I_nn = I_nn;
 results.P_nn = P_nn;
+results.V_nn_vi = V_nn_vi;
+results.I_nn_vi = I_nn_vi;
+results.P_nn_vi = P_nn_vi;
+results.deltaV_nn_vi = deltaV_nn_vi;
 
-results.metrics.energy_po = energy_po;
-results.metrics.energy_nn = energy_nn;
+results.metrics.energy_po      = energy_po;
+results.metrics.energy_nn      = energy_nn;
+results.metrics.energy_nn_vi   = energy_nn_vi;
 results.metrics.energy_optimal = energy_optimal;
-results.metrics.efficiency_po = efficiency_po;
-results.metrics.efficiency_nn = efficiency_nn;
-results.metrics.error_po = error_po;
-results.metrics.error_nn = error_nn;
+results.metrics.efficiency_po    = efficiency_po;
+results.metrics.efficiency_nn    = efficiency_nn;
+results.metrics.efficiency_nn_vi = efficiency_nn_vi;
+results.metrics.error_po    = error_po;
+results.metrics.error_nn    = error_nn;
+results.metrics.error_nn_vi = error_nn_vi;
 
 save(fullfile(sim_dir, 'simulation_results.mat'), 'results', 'network');
 fprintf('✓ Результати збережені в simulation/simulation_results.mat\n\n');

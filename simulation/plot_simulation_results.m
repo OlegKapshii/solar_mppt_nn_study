@@ -30,11 +30,18 @@ function plot_simulation_results(results)
     plot(time_hours, results.V_optimal, 'g-', 'LineWidth', 2);
     hold on;
     plot(time_hours, results.V_po, 'b--', 'LineWidth', 1.5, 'DisplayName', 'P&O');
-    plot(time_hours, results.V_nn, 'r-.', 'LineWidth', 1.5, 'DisplayName', 'NN');
+    plot(time_hours, results.V_nn, 'r-.', 'LineWidth', 1.5, 'DisplayName', 'NN-GT');
+    if isfield(results, 'V_nn_vi')
+        plot(time_hours, results.V_nn_vi, 'm:', 'LineWidth', 2, 'DisplayName', 'NN-VI');
+    end
     xlabel('Час [год]');
     ylabel('Напруга [V]');
     title('Напруга панелі');
-    legend('Оптимальна', 'P&O', 'NN');
+    if isfield(results, 'V_nn_vi')
+        legend('Оптимальна', 'P&O', 'NN-GT', 'NN-VI');
+    else
+        legend('Оптимальна', 'P&O', 'NN-GT');
+    end
     grid on;
     ylim([15 70]);
     
@@ -44,10 +51,17 @@ function plot_simulation_results(results)
     hold on;
     plot(time_hours, results.P_po, 'b--', 'LineWidth', 1.5);
     plot(time_hours, results.P_nn, 'r-.', 'LineWidth', 1.5);
+    if isfield(results, 'P_nn_vi')
+        plot(time_hours, results.P_nn_vi, 'm:', 'LineWidth', 2);
+    end
     xlabel('Час [год]');
     ylabel('Потужність [W]');
     title('Потужність панелей');
-    legend('Оптимальна', 'P&O', 'NN');
+    if isfield(results, 'P_nn_vi')
+        legend('Оптимальна', 'P&O', 'NN-GT', 'NN-VI');
+    else
+        legend('Оптимальна', 'P&O', 'NN-GT');
+    end
     grid on;
     
     % Графік 5: Струм
@@ -55,10 +69,17 @@ function plot_simulation_results(results)
     plot(time_hours, results.I_po, 'b--', 'LineWidth', 1.5);
     hold on;
     plot(time_hours, results.I_nn, 'r-.', 'LineWidth', 1.5);
+    if isfield(results, 'I_nn_vi')
+        plot(time_hours, results.I_nn_vi, 'm:', 'LineWidth', 2);
+    end
     xlabel('Час [год]');
     ylabel('Струм [A]');
     title('Струм панелей');
-    legend('P&O', 'NN');
+    if isfield(results, 'I_nn_vi')
+        legend('P&O', 'NN-GT', 'NN-VI');
+    else
+        legend('P&O', 'NN-GT');
+    end
     grid on;
     
     % Графік 6: Помилка напруги
@@ -68,26 +89,42 @@ function plot_simulation_results(results)
     plot(time_hours, error_po, 'b--', 'LineWidth', 1.5);
     hold on;
     plot(time_hours, error_nn, 'r-.', 'LineWidth', 1.5);
+    if isfield(results, 'V_nn_vi')
+        error_nn_vi = abs(results.V_nn_vi - results.V_optimal);
+        plot(time_hours, error_nn_vi, 'm:', 'LineWidth', 2);
+    end
     xlabel('Час [год]');
     ylabel('Помилка [V]');
     title('Помилка напруги від оптимальної');
-    legend('P&O', 'NN');
+    if isfield(results, 'V_nn_vi')
+        legend('P&O', 'NN-GT', 'NN-VI');
+    else
+        legend('P&O', 'NN-GT');
+    end
     grid on;
     
     % Графік 7: Кумулятивна енергія
     subplot(3, 3, 7);
-    energy_po_cumsum = cumsum(results.P_po) * 1 / 3600;  % Wh
-    energy_nn_cumsum = cumsum(results.P_nn) * 1 / 3600;
+    energy_po_cumsum  = cumsum(results.P_po)      * 1 / 3600;  % Wh
+    energy_nn_cumsum  = cumsum(results.P_nn)      * 1 / 3600;
     energy_opt_cumsum = cumsum(results.P_optimal) * 1 / 3600;
-    
-    plot(time_hours, energy_opt_cumsum, 'g-', 'LineWidth', 2);
+
+    plot(time_hours, energy_opt_cumsum, 'g-',  'LineWidth', 2);
     hold on;
-    plot(time_hours, energy_po_cumsum, 'b--', 'LineWidth', 1.5);
-    plot(time_hours, energy_nn_cumsum, 'r-.', 'LineWidth', 1.5);
+    plot(time_hours, energy_po_cumsum,  'b--', 'LineWidth', 1.5);
+    plot(time_hours, energy_nn_cumsum,  'r-.', 'LineWidth', 1.5);
+    if isfield(results, 'P_nn_vi')
+        energy_nn_vi_cumsum = cumsum(results.P_nn_vi) * 1 / 3600;
+        plot(time_hours, energy_nn_vi_cumsum, 'm:', 'LineWidth', 2);
+    end
     xlabel('Час [год]');
     ylabel('Кумулятивна енергія [Wh]');
     title('Вироблена енергія');
-    legend('Оптимальна', 'P&O', 'NN');
+    if isfield(results, 'P_nn_vi')
+        legend('Оптимальна', 'P&O', 'NN-GT', 'NN-VI');
+    else
+        legend('Оптимальна', 'P&O', 'NN-GT');
+    end
     grid on;
     
     % Графік 8: Порівняння метрик
@@ -97,16 +134,23 @@ function plot_simulation_results(results)
                  results.metrics.error_po, std(diff(results.V_po))];
     nn_values = [results.metrics.energy_nn, results.metrics.efficiency_nn, ...
                  results.metrics.error_nn, std(diff(results.V_nn))];
-    
-    x = 1:length(metrics);
-    width = 0.35;
-    bar(x - width/2, po_values, width, 'b', 'DisplayName', 'P&O');
+
+    x     = 1:length(metrics);
+    width = 0.25;
+    bar(x - width, po_values, width, 'b', 'DisplayName', 'P&O');
     hold on;
-    bar(x + width/2, nn_values, width, 'r', 'DisplayName', 'NN');
+    bar(x,         nn_values, width, 'r', 'DisplayName', 'NN-GT');
+    if isfield(results, 'metrics') && isfield(results.metrics, 'energy_nn_vi')
+        nn_vi_values = [results.metrics.energy_nn_vi, results.metrics.efficiency_nn_vi, ...
+                        results.metrics.error_nn_vi, std(diff(results.V_nn_vi))];
+        bar(x + width, nn_vi_values, width, 'm', 'DisplayName', 'NN-VI');
+        legend('P&O', 'NN-GT', 'NN-VI');
+    else
+        legend('P&O', 'NN-GT');
+    end
     set(gca, 'XTickLabel', metrics);
     ylabel('Значення');
     title('Порівняння метрик');
-    legend('P&O', 'NN');
     grid on;
     xtickangle(45);
     

@@ -20,14 +20,14 @@ addpath(fullfile(project_dir, 'simulation'));
 addpath(fullfile(project_dir, 'analysis'));
 
 fprintf('╔════════════════════════════════════════════════════════════════╗\n');
-fprintf('║  Симуляція MPPT систем: P&O vs Нейронна мережа               ║\n');
-fprintf('║  Порівняння ефективності та обчислювальної складності         ║\n');
+fprintf('║  Симуляція MPPT систем: P&O vs NN-GT vs NN-VI                ║\n');
+fprintf('║  Порівняння ефективності та інженерної коректності            ║\n');
 fprintf('╚════════════════════════════════════════════════════════════════╝\n\n');
 
 fprintf('Доступні опції:\n\n');
-fprintf('1. generate_training_data()      - Генерація даних для тренування NN\n');
-fprintf('2. run_full_simulation           - Запуск однієї повної симуляції\n');
-fprintf('3. compare_algorithms            - Запуск порівняння на 6 сценаріях\n');
+fprintf('1. generate_training_data()      - Генерація даних для NN-GT (G,T -> Vopt)\n');
+fprintf('2. run_full_simulation           - Запуск симуляції P&O, NN-GT, NN-VI\n');
+fprintf('3. compare_algorithms            - Порівняння трьох алгоритмів на 6 сценаріях\n');
 fprintf('4. analyze_results               - Аналіз результатів порівняння\n\n');
 
 fprintf('РЕКОМЕНДОВАНА ПОСЛІДОВНІСТЬ:\n');
@@ -41,7 +41,7 @@ fprintf('├─ Аналіз параметрів P&O:\n');
 fprintf('│  └─ Змініть dV_step у mppt_po.m (0.2, 0.5, 1.0, 2.0 V)\n');
 fprintf('│     та спостерігайте як це впливає на енергію\n\n');
 fprintf('├─ Аналіз архітектури NN:\n');
-fprintf('│  └─ Змініть розміри шарів у nn_init.m [2, 8, 4, 1] -> [2, 16, 8, 1]\n');
+fprintf('│  └─ Змініть розміри шарів у nn_init.m або nn_init_vi.m\n');
 fprintf('│     та проаналізуйте вплив на точність\n\n');
 fprintf('├─ Аналіз різних погодніх сценаріїв:\n');
 fprintf('│  └─ Змінюйте ''cloud'' параметр: clear, gradual, sudden, frequent, mixed\n\n');
@@ -56,8 +56,10 @@ fprintf('├─ docs/classical_mppt.md      - Опис P&O алгоритму\n'
 fprintf('└─ docs/neural_network_mppt.md - Опис нейромережевого MPPT\n\n');
 
 fprintf('СТРУКТУРА РЕЗУЛЬТАТІВ:\n');
-fprintf('├─ neural_network/trained_network.mat   - Натренована мережа\n');
-fprintf('├─ data_generation/training_data.mat    - Дані для тренування\n');
+fprintf('├─ neural_network/trained_network.mat    - Натренована мережа NN-GT\n');
+fprintf('├─ neural_network/trained_network_vi_v2.mat - Натренована мережа NN-VI\n');
+fprintf('├─ data_generation/training_data.mat     - Дані для тренування NN-GT\n');
+fprintf('├─ data_generation/training_data_vi_v2.mat  - Дані для тренування NN-VI\n');
 fprintf('├─ simulation/simulation_results.mat     - Результати однієї симуляції\n');
 fprintf('├─ simulation/comparison_results.mat     - Результати порівняння\n');
 fprintf('└─ analysis/analysis_report.txt          - Текстовий звіт\n\n');

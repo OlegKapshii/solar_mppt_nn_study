@@ -30,22 +30,35 @@ for i = 1:length(all_results)
     fprintf('─────────────────────────────────────────\n');
 
     fprintf('\n1. ЕНЕРГІЯ І ЕФЕКТИВНІСТЬ:\n');
-    fprintf('   P&O MPPT: %.2f Wh (%.2f%%)\n', result.metrics.energy_po, result.metrics.efficiency_po);
-    fprintf('   NN MPPT:  %.2f Wh (%.2f%%)\n', result.metrics.energy_nn, result.metrics.efficiency_nn);
-    fprintf('   Оптимум:  %.2f Wh\n', result.metrics.energy_optimal);
+    fprintf('   P&O MPPT:    %.2f Wh (%.2f%%)\n', result.metrics.energy_po, result.metrics.efficiency_po);
+    fprintf('   NN-GT MPPT:  %.2f Wh (%.2f%%)  [входи: G, T]\n', result.metrics.energy_nn, result.metrics.efficiency_nn);
+    if isfield(result.metrics, 'energy_nn_vi')
+        fprintf('   NN-VI MPPT:  %.2f Wh (%.2f%%)  [входи: V, I, P, dV, dP]\n', result.metrics.energy_nn_vi, result.metrics.efficiency_nn_vi);
+    end
+    fprintf('   Оптимум:     %.2f Wh\n', result.metrics.energy_optimal);
 
-    energy_diff = result.metrics.energy_nn - result.metrics.energy_po;
-    energy_diff_pct = 100 * energy_diff / max(result.metrics.energy_po, eps);
-    fprintf('   Перевага NN: %.2f Wh (%.2f%%)\n', energy_diff, energy_diff_pct);
+    energy_diff_gt = result.metrics.energy_nn - result.metrics.energy_po;
+    fprintf('   Перевага NN-GT над P&O: %.2f Wh (%.2f%%)\n', energy_diff_gt, ...
+        100 * energy_diff_gt / max(result.metrics.energy_po, eps));
+    if isfield(result.metrics, 'energy_nn_vi')
+        energy_diff_vi = result.metrics.energy_nn_vi - result.metrics.energy_po;
+        fprintf('   Перевага NN-VI над P&O: %.2f Wh (%.2f%%)\n', energy_diff_vi, ...
+            100 * energy_diff_vi / max(result.metrics.energy_po, eps));
+    end
 
     fprintf('\n2. ТОЧНІСТЬ (помилка напруги):\n');
-    fprintf('   P&O: %.3f V\n', result.metrics.error_po);
-    fprintf('   NN:  %.3f V\n', result.metrics.error_nn);
-    fprintf('   Відносне покращення NN: %.1f%%\n', 100 * (result.metrics.error_po - result.metrics.error_nn) / max(result.metrics.error_po, eps));
+    fprintf('   P&O:    %.3f V\n', result.metrics.error_po);
+    fprintf('   NN-GT:  %.3f V\n', result.metrics.error_nn);
+    if isfield(result.metrics, 'error_nn_vi')
+        fprintf('   NN-VI:  %.3f V\n', result.metrics.error_nn_vi);
+    end
 
     fprintf('\n3. СТАБІЛЬНІСТЬ (std(dV)):\n');
-    fprintf('   P&O: %.4f V\n', result.metrics.oscill_po);
-    fprintf('   NN:  %.4f V\n', result.metrics.oscill_nn);
+    fprintf('   P&O:    %.4f V\n', result.metrics.oscill_po);
+    fprintf('   NN-GT:  %.4f V\n', result.metrics.oscill_nn);
+    if isfield(result.metrics, 'oscill_nn_vi')
+        fprintf('   NN-VI:  %.4f V\n', result.metrics.oscill_nn_vi);
+    end
 
     dG = diff(result.irradiance_cloudy);
     locs = find(abs(dG) > 50);
@@ -59,33 +72,51 @@ fprintf('=== ЗАГАЛЬНЕ ПОРІВНЯННЯ ===\n');
 fprintf('═════════════════════════════════════════\n\n');
 
 N = length(all_results);
-po_eff = zeros(1, N);
-nn_eff = zeros(1, N);
-po_err = zeros(1, N);
-nn_err = zeros(1, N);
+po_eff  = zeros(1, N);
+nn_eff  = zeros(1, N);
+po_err  = zeros(1, N);
+nn_err  = zeros(1, N);
+has_vi  = isfield(all_results{1}.metrics, 'efficiency_nn_vi');
+nn_vi_eff = zeros(1, N);
+nn_vi_err = zeros(1, N);
 
 for i = 1:N
     po_eff(i) = all_results{i}.metrics.efficiency_po;
     nn_eff(i) = all_results{i}.metrics.efficiency_nn;
     po_err(i) = all_results{i}.metrics.error_po;
     nn_err(i) = all_results{i}.metrics.error_nn;
+    if has_vi
+        nn_vi_eff(i) = all_results{i}.metrics.efficiency_nn_vi;
+        nn_vi_err(i) = all_results{i}.metrics.error_nn_vi;
+    end
 end
 
 fprintf('На основі %d сценаріїв:\n\n', N);
-fprintf('Середня ефективність P&O: %.2f%%\n', mean(po_eff));
-fprintf('Середня ефективність NN:  %.2f%%\n', mean(nn_eff));
-fprintf('Приріст NN: +%.2f%%\n\n', mean(nn_eff) - mean(po_eff));
+fprintf('Середня ефективність P&O:    %.2f%%\n', mean(po_eff));
+fprintf('Середня ефективність NN-GT:  %.2f%%  (входи: G, T)\n', mean(nn_eff));
+if has_vi
+    fprintf('Середня ефективність NN-VI:  %.2f%%  (входи: V, I)\n', mean(nn_vi_eff));
+end
+fprintf('\nПриріст NN-GT над P&O: +%.2f%%\n', mean(nn_eff) - mean(po_eff));
+if has_vi
+    fprintf('Приріст NN-VI над P&O: +%.2f%%\n', mean(nn_vi_eff) - mean(po_eff));
+end
 
-fprintf('Середня помилка P&O: %.3f V\n', mean(po_err));
-fprintf('Середня помилка NN:  %.3f V\n', mean(nn_err));
-fprintf('Зниження помилки NN: %.1f%%\n\n', 100 * (mean(po_err) - mean(nn_err)) / max(mean(po_err), eps));
+fprintf('\nСередня помилка P&O:    %.3f V\n', mean(po_err));
+fprintf('Середня помилка NN-GT:  %.3f V\n', mean(nn_err));
+if has_vi
+    fprintf('Середня помилка NN-VI:  %.3f V\n', mean(nn_vi_err));
+end
 
 fprintf('═════════════════════════════════════════\n');
 fprintf('=== ВИСНОВКИ ===\n');
 fprintf('═════════════════════════════════════════\n\n');
-fprintf('1. Алгоритм NN в середньому краще відслідковує MPP у змінній освітленості.\n');
-fprintf('2. На швидких змінах хмарності P&O частіше втрачає енергію через запізнення.\n');
-fprintf('3. P&O простіший, але має коливання навколо робочої точки.\n');
+fprintf('1. Алгоритм NN-GT використовує освітленість G та температуру T —\n');
+fprintf('   неприпустимо в реальній системі без окремого піранометра.\n');
+    fprintf('2. Алгоритм NN-VI використовує лише вимірювані сигнали V, I, P, dV, dP —\n');
+    fprintf('   це інженерно коректний та більш керувальний підхід.\n');
+fprintf('3. P&O простий і надійний, але має осциляції навколо робочої точки.\n');
+fprintf('4. На швидких змінах хмарності P&O втрачає більше енергії через запізнення.\n');
 
 report_file = fullfile(analysis_dir, 'analysis_report.txt');
 fid = fopen(report_file, 'w');
@@ -97,17 +128,28 @@ fprintf(fid, 'ДАТА АНАЛІЗУ: %s\n\n', datestr(now));
 for i = 1:N
     r = all_results{i};
     fprintf(fid, '%s\n', r.scenario_name);
-    fprintf(fid, '  P&O: %.2f Wh (%.2f%%), error=%.3f V\n', ...
+    fprintf(fid, '  P&O:   %.2f Wh (%.2f%%), error=%.3f V\n', ...
         r.metrics.energy_po, r.metrics.efficiency_po, r.metrics.error_po);
-    fprintf(fid, '  NN:  %.2f Wh (%.2f%%), error=%.3f V\n\n', ...
+    fprintf(fid, '  NN-GT: %.2f Wh (%.2f%%), error=%.3f V  [входи: G, T]\n', ...
         r.metrics.energy_nn, r.metrics.efficiency_nn, r.metrics.error_nn);
+    if isfield(r.metrics, 'energy_nn_vi')
+        fprintf(fid, '  NN-VI: %.2f Wh (%.2f%%), error=%.3f V  [входи: V, I, P, dV, dP]\n', ...
+            r.metrics.energy_nn_vi, r.metrics.efficiency_nn_vi, r.metrics.error_nn_vi);
+    end
+    fprintf(fid, '\n');
 end
 
 fprintf(fid, 'СЕРЕДНІ МЕТРИКИ\n');
-fprintf(fid, 'P&O ефективність: %.2f%%\n', mean(po_eff));
-fprintf(fid, 'NN  ефективність: %.2f%%\n', mean(nn_eff));
-fprintf(fid, 'P&O помилка: %.3f V\n', mean(po_err));
-fprintf(fid, 'NN  помилка: %.3f V\n', mean(nn_err));
+fprintf(fid, 'P&O   ефективність: %.2f%%\n', mean(po_eff));
+fprintf(fid, 'NN-GT ефективність: %.2f%%\n', mean(nn_eff));
+if has_vi
+    fprintf(fid, 'NN-VI ефективність: %.2f%%\n', mean(nn_vi_eff));
+end
+fprintf(fid, 'P&O   помилка: %.3f V\n', mean(po_err));
+fprintf(fid, 'NN-GT помилка: %.3f V\n', mean(nn_err));
+if has_vi
+    fprintf(fid, 'NN-VI помилка: %.3f V\n', mean(nn_vi_err));
+end
 
 fclose(fid);
 
