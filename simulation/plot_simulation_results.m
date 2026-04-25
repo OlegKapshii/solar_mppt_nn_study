@@ -45,7 +45,7 @@ function plot_simulation_results(results)
         legend('Оптимальна', 'P&O', 'NN-GT');
     end
     grid on;
-    ylim([15 70]);
+    ylim([180 320]);   % діапазон робочих напруг масиву 10s × 2p (Voc=329 V)
     
     % Графік 4: Потужність
     subplot(3, 3, 4);

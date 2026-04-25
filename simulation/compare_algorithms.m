@@ -72,7 +72,7 @@ end
 if isfield(network_vi, 'action_limit')
     action_limit = network_vi.action_limit;
 else
-    action_limit = 1.2;
+    action_limit = 6;   % масштабовано під масив 10s × 2p (Voc_arr=329 V)
 end
 fprintf('✓ NN-VI v4 завантажена (архітектура 6-24-12-1, action_limit=%.2f V)\n\n', action_limit);
 
@@ -161,22 +161,23 @@ for scenario_idx = 1:length(scenarios)
     V_vi_hybrid = zeros(1, num_steps); P_vi_hybrid = zeros(1, num_steps);
     V_optimal = zeros(1, num_steps);   P_optimal = zeros(1, num_steps);
 
-    V_po(1) = 40;
-    V_po_pyr(1) = 40;
-    V_vi_pure(1) = 40;
-    V_vi_hybrid(1) = 40;
+    % Стартові напруги — ~70% Voc_arr (329 V) для масиву 10s × 2p KC200GT
+    V_po(1) = 230;
+    V_po_pyr(1) = 230;
+    V_vi_pure(1) = 230;
+    V_vi_hybrid(1) = 230;
 
-    V_po_prev = 40;      P_po_prev = 0;
-    V_po_pyr_prev = 40;  P_po_pyr_prev = 0;
-    V_pure_prev = 40;    P_pure_prev = 0;
-    V_hyb_prev = 40;     P_hyb_prev = 0;
+    V_po_prev = 230;      P_po_prev = 0;
+    V_po_pyr_prev = 230;  P_po_pyr_prev = 0;
+    V_pure_prev = 230;    P_pure_prev = 0;
+    V_hyb_prev = 230;     P_hyb_prev = 0;
 
     dV_cmd_pure = zeros(1, num_steps);
     dV_cmd_hyb = zeros(1, num_steps);
 
     update_counter = 0;
     update_period = 3;
-    dV_po = 0.8;
+    dV_po = 2.0;       % масштабовано під масив 10s × 2p (Voc_arr=329 V)
 
     for i = 1:num_steps
         G = irradiance_cloudy(i);
@@ -252,7 +253,7 @@ for scenario_idx = 1:length(scenarios)
 
         if i < num_steps
             V_vi_pure(i+1) = V_vi_pure(i) + dv_pure;
-            V_vi_pure(i+1) = max(15, min(65, V_vi_pure(i+1)));
+            V_vi_pure(i+1) = max(30, min(320, V_vi_pure(i+1)));
         end
 
         % NN-VI Hybrid
@@ -271,7 +272,7 @@ for scenario_idx = 1:length(scenarios)
 
         % Нове: додаємо V_prev (попередня напруга) як 2-й вхід
         dv_nn = nn_forward_vi(network_vi, [V_vi_hybrid(i); V_vi_hybrid_prev; i_hyb; P_vi_hybrid(i); dV_hyb; dP_hyb]);
-        V_po_like = mppt_po(V_hyb_prev, P_hyb_prev, V_vi_hybrid(i), P_vi_hybrid(i), 0.6);
+        V_po_like = mppt_po(V_hyb_prev, P_hyb_prev, V_vi_hybrid(i), P_vi_hybrid(i), 1.5);
         dv_po = V_po_like - V_vi_hybrid(i);
 
         if i == 1
@@ -293,7 +294,7 @@ for scenario_idx = 1:length(scenarios)
 
         if i < num_steps
             V_vi_hybrid(i+1) = V_vi_hybrid(i) + dv_hyb;
-            V_vi_hybrid(i+1) = max(15, min(65, V_vi_hybrid(i+1)));
+            V_vi_hybrid(i+1) = max(30, min(320, V_vi_hybrid(i+1)));
         end
         V_hyb_prev = V_vi_hybrid(i);
         P_hyb_prev = P_vi_hybrid(i);

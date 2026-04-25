@@ -23,25 +23,27 @@ function network = nn_init_vi()
     network.num_layers = length(network.layer_sizes);
 
     % Діапазони нормалізації входів
-    % Масив 10 паралельних x 2 послідовних KC200GT
+    % Масив 10 series × 2 parallel KC200GT:
+    %   Voc_arr ≈ 329 V, Isc_arr ≈ 17 A, Pmax ≈ 4000 W
     network.V_in_min = 0;      % Мінімальна напруга [V]
-    network.V_in_max = 70;     % Максимальна напруга [V] (вище за Voc масиву ~65.8V)
+    network.V_in_max = 340;    % Максимальна напруга [V] (~Voc_arr + запас)
     network.V_prev_min = 0;    % Мінімальна напруга попереднього кроку [V]
-    network.V_prev_max = 70;   % Максимальна напруга попереднього кроку [V]
+    network.V_prev_max = 340;  % Максимальна напруга попереднього кроку [V]
     network.I_in_min = 0;      % Мінімальний струм [A]
-    network.I_in_max = 100;    % Максимальний струм [A] (вище за Isc масиву ~85.5A)
+    network.I_in_max = 20;     % Максимальний струм [A] (вище за Isc_arr=17.1)
     network.P_in_min = 0;      % Мінімальна потужність [W]
     network.P_in_max = 4500;   % Максимальна потужність [W]
-    network.dV_min   = -5;     % Мінімальна зміна напруги [V]
-    network.dV_max   = 5;      % Максимальна зміна напруги [V]
+    network.dV_min   = -8;     % Мінімальна зміна напруги [V] на крок
+    network.dV_max   = 8;      % Максимальна зміна напруги [V] на крок
     network.dP_min   = -1200;  % Мінімальна зміна потужності [W]
     network.dP_max   = 1200;   % Максимальна зміна потужності [W]
 
     % Діапазони виходу: корекція напруги deltaV
-    % Узгоджено з runtime-обмеженням керування
-    network.output_min = -1.2;
-    network.output_max = 1.2;
-    network.action_limit = 1.2;
+    % Узгоджено з runtime-обмеженням керування. Раніше було ±1.2 В для масиву
+    % з Voc=66 В (~1.8% Voc); зараз масштабовано до ±6 В для Voc=329 В (~1.8%).
+    network.output_min = -6;
+    network.output_max = 6;
+    network.action_limit = 6;
 
     network.W = {};
     network.b = {};

@@ -21,10 +21,15 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
     this_dir    = fileparts(mfilename('fullpath'));
     project_dir = fileparts(this_dir);
     addpath(fullfile(project_dir, 'solar_model'));
+    addpath(fullfile(project_dir, 'neural_network'));
 
     % Кількість локальних переходів для кожної умови (G, T)
     N_per_condition = 32;  % Збільшена кількість точок на умову
-    action_limit = 1.2;
+    % action_limit має узгоджуватись з nn_init_vi.m::action_limit, інакше
+    % тренувальні дані будуть обрізані до іншого діапазону, ніж очікує
+    % мережа на інференсі.
+    tmp_net = nn_init_vi();
+    action_limit = tmp_net.action_limit;
 
     total = num_conditions * N_per_condition;
 
@@ -32,9 +37,9 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
     fprintf('Умов (G,T): %d, Точок на умову: %d, Всього: %d\n', ...
         num_conditions, N_per_condition, total);
 
-    % Генерація умов (G, T) на сітці + шум (аналогічно generate_training_data)
-    G_min = 50;   G_max = 1000;
-    T_min = 15;   T_max = 60;
+    % Генерація умов (G, T) на сітці + шум — узгоджено з nn_init.m
+    G_min = 50;   G_max = 1100;
+    T_min = 5;    T_max = 65;
 
     G_vals = linspace(G_min, G_max, ceil(sqrt(num_conditions)));
     T_vals = linspace(T_min, T_max, ceil(sqrt(num_conditions)));

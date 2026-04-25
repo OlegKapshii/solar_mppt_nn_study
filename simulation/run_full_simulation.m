@@ -154,7 +154,9 @@ fprintf('Ініціалізація MPPT контролерів...\n');
 V_po = zeros(1, num_steps);
 I_po = zeros(1, num_steps);
 P_po = zeros(1, num_steps);
-V_po(1) = 40;  % Стартова напруга [V]
+% Стартова напруга — ~70% Voc_arr (329 V) для масиву 10s × 2p KC200GT.
+% Реальний трекер стартує знизу (від Voc) і сходиться донизу до Vmp~263 V.
+V_po(1) = 230;
 V_po_prev = V_po(1);
 P_po_prev = 0;
 
@@ -167,7 +169,7 @@ P_nn = zeros(1, num_steps);
 V_nn_vi = zeros(1, num_steps);
 I_nn_vi = zeros(1, num_steps);
 P_nn_vi = zeros(1, num_steps);
-V_nn_vi(1) = 40;  % Стартова напруга [V] (така сама як P&O)
+V_nn_vi(1) = 230;  % Стартова напруга [V] (така сама як P&O)
 deltaV_nn_vi = zeros(1, num_steps);
 V_nn_vi_prev = V_nn_vi(1);
 P_nn_vi_prev = 0;
@@ -184,7 +186,9 @@ fprintf('Прогрес: ');
 
 % Період оновлення P&O = 1 секунда, але розраховуємо кожен крок
 update_period = 3;  % 3 кроки (щоб проявити інерційність класичного P&O)
-dV_po = 0.8;
+% dV_po масштабовано до Voc_arr=329 V: раніше 0.8 V на Voc=66 V (1.2%);
+% тепер 2.0 V на Voc=329 V (0.6%, ще консервативніше).
+dV_po = 2.0;
 update_counter = 0;
 
 for i = 1:num_steps
@@ -246,7 +250,8 @@ for i = 1:num_steps
     deltaV_nn = nn_forward_vi(network_vi, [V_nn_vi(i); V_nn_vi_prev_actual; I_nn_vi(i); P_nn_vi(i); dV_nn_vi_curr; dP_nn_vi_curr]);
 
     % Локальна корекція у стилі P&O для страхування від хибних кроків NN
-    V_po_like = mppt_po(V_nn_vi_prev, P_nn_vi_prev, V_nn_vi(i), P_nn_vi(i), 0.6);
+    % Локальна P&O-страховка: dV_step масштабовано під Voc_arr=329 V
+    V_po_like = mppt_po(V_nn_vi_prev, P_nn_vi_prev, V_nn_vi(i), P_nn_vi(i), 1.5);
     deltaV_po_like = V_po_like - V_nn_vi(i);
 
     if i == 1
@@ -268,12 +273,20 @@ for i = 1:num_steps
         deltaV_cmd = 0.5 * deltaV_cmd;
     end
 
-    deltaV_cmd = max(-1.2, min(1.2, deltaV_cmd));
+    % action_limit узгоджений із nn_init_vi — раніше 1.2 V (для Voc=66),
+    % зараз 6 V (для Voc=329, той самий ~1.8% від Voc).
+    if isfield(network_vi, 'action_limit')
+        a_lim = network_vi.action_limit;
+    else
+        a_lim = 6;
+    end
+    deltaV_cmd = max(-a_lim, min(a_lim, deltaV_cmd));
     deltaV_nn_vi(i) = deltaV_cmd;
 
     if i < num_steps
         V_nn_vi(i + 1) = V_nn_vi(i) + deltaV_cmd;
-        V_nn_vi(i + 1) = max(15, min(65, V_nn_vi(i + 1)));
+        % Межі: ~10..97% Voc_arr (масив 329 V)
+        V_nn_vi(i + 1) = max(30, min(320, V_nn_vi(i + 1)));
     end
 
     P_nn_vi_prev = P_nn_vi(i);

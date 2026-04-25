@@ -13,26 +13,35 @@ function panel = get_panel_characteristics()
     panel.efficiency_stc = 0.1675;   % Ефективність при STC
     
     % Розміри панелі
-    panel.area = 1.23 * 1.626;       % Площа в м² (приблизно для 200W панелі)
-    
+    panel.area = 1.425;              % Площа в м² (1.425 для KC200GT, datasheet)
+
+    % Внутрішня структура модуля
+    panel.Ns = 54;                   % Послідовних клітин у модулі (KC200GT)
+
     % Температурні коефіцієнти (для розрахунку при іншій температурі)
-    panel.alpha_I = 0.0032;          % Коефіцієнт для Isc [A/°C]
+    panel.alpha_I = 0.00318;         % Коефіцієнт для Isc [A/°C] (datasheet)
     panel.beta_V = -0.123;           % Коефіцієнт для Voc [V/°C]
     panel.gamma_P = -0.0041;         % Коефіцієнт для Pmax [1/°C]
+    panel.NOCT = 47;                 % Nominal Operating Cell Temperature [°C]
     
     % Виробник
     panel.name = 'KC200GT';
     panel.manufacturer = 'Kyocera';
     panel.type = 'Monocrystalline';
     
-    % Облік: 10x2 масив панелей (20 панелей)
-    % Конфігурація: 10 паралельно, 2 послідовно
-    panel.series = 2;                % Панелі послідовно
-    panel.parallel = 10;             % Панелі паралельно
-    
+    % Конфігурація масиву: 10 послідовно × 2 паралельно (20 панелей).
+    % Це реалістичніше за попередні 2×10 — масив 4 кВт працює на ~263 В
+    % і ~15 А, що відповідає типовим residential string-інверторам.
+    % (Стара конфігурація 2×10 давала 53 В × 76 А — нереалістично великий
+    % струм через інвертор, потрібні товсті дроти, низька напруга.)
+    panel.series   = 10;             % Панелі послідовно (множить напругу)
+    panel.parallel = 2;               % Панелі паралельно (множить струм)
+
     % Параметри масиву
     panel.array_P_max = panel.P_max_stc * panel.series * panel.parallel;  % 4000 W
-    panel.array_V_mp = panel.V_mp_stc * panel.series;   % 52.6 V
-    panel.array_I_mp = panel.I_mp_stc * panel.parallel;  % 76.1 A
-    
+    panel.array_V_oc  = panel.V_oc_stc * panel.series;     % 329 V
+    panel.array_V_mp  = panel.V_mp_stc * panel.series;     % 263 V
+    panel.array_I_sc  = panel.I_sc_stc * panel.parallel;   % 17.1 A
+    panel.array_I_mp  = panel.I_mp_stc * panel.parallel;   % 15.22 A
+
 end

@@ -80,7 +80,7 @@ for s_idx = 1:length(scenarios)
     
     V_po = zeros(1, num_steps);
     P_po = zeros(1, num_steps);
-    V_po(1) = 40;  % Стартова напруга
+    V_po(1) = 230; % Стартова напруга (~70% Voc_arr=329 V для масиву 10s × 2p)
     
     for i = 1:num_steps
         [~, P_po(i), ~] = calculate_panel_output(G(i), T(i), V_po(i));
@@ -109,13 +109,13 @@ for s_idx = 1:length(scenarios)
         
         if i < num_steps
             if i == 1
-                V_po_adap(i+1) = V_po_adap(i) + 0.8;
+                V_po_adap(i+1) = V_po_adap(i) + 2.0;
             else
-                % Адаптивний P&O з G та G_prev
+                % Адаптивний P&O з G та G_prev (dV_step_base=2.0 для Voc_arr=329 V)
                 G_prev = G(max(1, i-1));
                 V_next = mppt_po_adaptive(V_po_adap(i-1), P_po_adap(i-1), ...
                                          V_po_adap(i), P_po_adap(i), ...
-                                         G(i), G_prev, 0.8);
+                                         G(i), G_prev, 2.0);
                 V_po_adap(i+1) = V_next;
             end
         end
