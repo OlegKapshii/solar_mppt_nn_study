@@ -25,15 +25,25 @@ data_vi_file  = fullfile(project_dir, 'data_generation', 'training_data_vi_v4.ma
 model_vi_file = fullfile(project_dir, 'neural_network', 'trained_network_vi_v4.mat');
 
 % КРОК 1: Генерація даних (якщо ще не існує)
+gt_data_refreshed = false;
 if ~exist(data_file, 'file')
     fprintf('Файл тренувальних даних не знайдений.\n');
     fprintf('Генеруємо нові дані...\n\n');
     [training_data, validation_data] = generate_training_data(220);
+    gt_data_refreshed = true;
 else
     fprintf('Завантажуємо існуючі тренувальні дані...\n');
     loaded = load(data_file);
     training_data = loaded.training_data;
     validation_data = loaded.validation_data;
+
+    gt_data_stale = (~isfield(training_data, 'V')) || (max(training_data.V) < 120);
+    if gt_data_stale
+        fprintf('! GT train-дані застарілі (старий масштаб). Перегенеровуємо...\n');
+        [training_data, validation_data] = generate_training_data(220);
+        save(data_file, 'training_data', 'validation_data');
+        gt_data_refreshed = true;
+    end
     fprintf('✓ Дані завантажені\n\n');
 end
 
@@ -50,6 +60,21 @@ else
     fprintf('Завантажуємо натреновану мережу NN-GT...\n');
     loaded_model = load(model_file);
     network = loaded_model.network;
+
+    % Якщо модель натренована під старий масштаб (2s x 10p), перенавчаємо
+    gt_ref = nn_init();
+    gt_scale_mismatch = ...
+        (~isfield(network, 'V_min') || abs(network.V_min - gt_ref.V_min) > 1e-9) || ...
+        (~isfield(network, 'V_max') || abs(network.V_max - gt_ref.V_max) > 1e-9) || ...
+        (~isfield(network, 'G_max') || abs(network.G_max - gt_ref.G_max) > 1e-9) || ...
+        (~isfield(network, 'T_min') || abs(network.T_min - gt_ref.T_min) > 1e-9) || ...
+        (~isfield(network, 'T_max') || abs(network.T_max - gt_ref.T_max) > 1e-9);
+
+    if gt_scale_mismatch || gt_data_refreshed
+        fprintf('! NN-GT має застарілий масштаб. Перенавчаємо...\n\n');
+        [network, training_info] = nn_train(gt_ref, training_data, validation_data); %#ok<NASGU>
+        save(model_file, 'network', 'training_info');
+    end
     fprintf('✓ NN-GT завантажена\n\n');
 end
 
@@ -57,14 +82,31 @@ end
 fprintf('--- NN-VI v4 (входи: V, V_prev, I, P, dV, dP; вихід: deltaV) ---\n');
 network_vi = nn_init_vi();
 
+vi_data_refreshed = false;
 if ~exist(data_vi_file, 'file')
     fprintf('VI тренувальних даних v4 не знайдено. Генеруємо...\n\n');
     [training_data_vi, validation_data_vi] = generate_training_data_vi(350);
+    vi_data_refreshed = true;
 else
     fprintf('Завантажуємо VI тренувальні дані v4...\n');
     loaded_vi = load(data_vi_file);
     training_data_vi   = loaded_vi.training_data;
     validation_data_vi = loaded_vi.validation_data;
+
+    vi_data_stale = ...
+        (~isfield(training_data_vi, 'V_in')) || ...
+        (~isfield(training_data_vi, 'target_dV')) || ...
+        (max(training_data_vi.V_in) < 120) || ...
+        (max(abs(training_data_vi.target_dV)) < 2.0);
+
+    if vi_data_stale
+        fprintf('! VI train-дані v4 застарілі (старий масштаб). Перегенеровуємо...\n');
+        [training_data_vi, validation_data_vi] = generate_training_data_vi(350);
+        training_data = training_data_vi; %#ok<NASGU>
+        validation_data = validation_data_vi; %#ok<NASGU>
+        save(data_vi_file, 'training_data', 'validation_data');
+        vi_data_refreshed = true;
+    end
     fprintf('✓ VI дані v4 завантажені\n\n');
 end
 
@@ -77,9 +119,19 @@ else
     fprintf('Завантажуємо натреновану мережу NN-VI v4...\n');
     loaded_vi_model = load(model_vi_file);
     network_vi = loaded_vi_model.network_vi;
-    if ~isfield(network_vi, 'version') || network_vi.version < 4
-        fprintf('Знайдена застаріла NN-VI модель. Перетреновуємо до v4...\n\n');
-        [network_vi, training_info_vi] = nn_train_vi(network_vi, training_data_vi, validation_data_vi);
+
+    % Окрім version перевіряємо масштаби входів/виходів (критично для 10s x 2p)
+    vi_ref = nn_init_vi();
+    vi_scale_mismatch = ...
+        (~isfield(network_vi, 'action_limit') || abs(network_vi.action_limit - vi_ref.action_limit) > 1e-9) || ...
+        (~isfield(network_vi, 'V_in_max') || abs(network_vi.V_in_max - vi_ref.V_in_max) > 1e-9) || ...
+        (~isfield(network_vi, 'I_in_max') || abs(network_vi.I_in_max - vi_ref.I_in_max) > 1e-9) || ...
+        (~isfield(network_vi, 'output_min') || abs(network_vi.output_min - vi_ref.output_min) > 1e-9) || ...
+        (~isfield(network_vi, 'output_max') || abs(network_vi.output_max - vi_ref.output_max) > 1e-9);
+
+    if ~isfield(network_vi, 'version') || network_vi.version < 4 || vi_scale_mismatch || vi_data_refreshed
+        fprintf('Знайдена застаріла NN-VI модель (version/scale mismatch). Перетреновуємо...\n\n');
+        [network_vi, training_info_vi] = nn_train_vi(vi_ref, training_data_vi, validation_data_vi);
         save(model_vi_file, 'network_vi', 'training_info_vi');
     end
     fprintf('✓ NN-VI v4 завантажена (архітектура 6-24-12-1)\n\n');

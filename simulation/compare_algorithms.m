@@ -26,11 +26,46 @@ fprintf('Алгоритми: P&O | P&O+Pyr | NN-GT | NN-VI Pure | NN-VI Hybrid\n
 
 % NN-GT
 model_file = fullfile(project_dir, 'neural_network', 'trained_network.mat');
+data_file = fullfile(project_dir, 'data_generation', 'training_data.mat');
+
+gt_data_refreshed = false;
+if ~exist(data_file, 'file')
+    [training_data, validation_data] = generate_training_data(220);
+    save(data_file, 'training_data', 'validation_data');
+    gt_data_refreshed = true;
+else
+    loaded_data = load(data_file);
+    training_data = loaded_data.training_data;
+    validation_data = loaded_data.validation_data;
+    gt_data_stale = (~isfield(training_data, 'V')) || (max(training_data.V) < 120);
+    if gt_data_stale
+        fprintf('! GT train-дані застарілі (старий масштаб). Перегенеровуємо...\n');
+        [training_data, validation_data] = generate_training_data(220);
+        save(data_file, 'training_data', 'validation_data');
+        gt_data_refreshed = true;
+    end
+end
+
 if ~exist(model_file, 'file')
-    error('Натренована мережа NN-GT не знайдена. Спочатку запустіть run_full_simulation.m');
+    error('Натренована мережа NN-GT не знайдена. Спочатку згенеруйте training_data.mat і запустіть тренування.');
 end
 loaded_model = load(model_file);
 network = loaded_model.network;
+
+% Перевірка узгодженості масштабу NN-GT з поточною моделлю масиву (10s x 2p)
+gt_ref = nn_init();
+gt_scale_mismatch = ...
+    (~isfield(network, 'V_min') || abs(network.V_min - gt_ref.V_min) > 1e-9) || ...
+    (~isfield(network, 'V_max') || abs(network.V_max - gt_ref.V_max) > 1e-9) || ...
+    (~isfield(network, 'G_max') || abs(network.G_max - gt_ref.G_max) > 1e-9) || ...
+    (~isfield(network, 'T_min') || abs(network.T_min - gt_ref.T_min) > 1e-9) || ...
+    (~isfield(network, 'T_max') || abs(network.T_max - gt_ref.T_max) > 1e-9);
+
+if gt_scale_mismatch || gt_data_refreshed
+    fprintf('! Виявлено застарілий масштаб NN-GT. Перенавчаємо модель...\n');
+    [network, training_info] = nn_train(gt_ref, training_data, validation_data); %#ok<NASGU>
+    save(model_file, 'network', 'training_info');
+end
 fprintf('✓ NN-GT завантажена\n');
 
 % NN-VI v4 (покращена версія з V_prev входом та більшою архітектурою)
@@ -40,10 +75,30 @@ data_vi_file = fullfile(project_dir, 'data_generation', 'training_data_vi_v4.mat
 if ~exist(data_vi_file, 'file')
     fprintf('VI train-дані v4 не знайдено. Генеруємо...\n');
     [training_data_vi, validation_data_vi] = generate_training_data_vi(350);
+    training_data = training_data_vi; %#ok<NASGU>
+    validation_data = validation_data_vi; %#ok<NASGU>
+    save(data_vi_file, 'training_data', 'validation_data');
+    vi_data_refreshed = true;
 else
     loaded_data_vi = load(data_vi_file);
     training_data_vi = loaded_data_vi.training_data;
     validation_data_vi = loaded_data_vi.validation_data;
+    vi_data_refreshed = false;
+
+    vi_data_stale = ...
+        (~isfield(training_data_vi, 'V_in')) || ...
+        (~isfield(training_data_vi, 'target_dV')) || ...
+        (max(training_data_vi.V_in) < 120) || ...
+        (max(abs(training_data_vi.target_dV)) < 2.0);
+
+    if vi_data_stale
+        fprintf('! VI train-дані застарілі (старий масштаб). Перегенеровуємо...\n');
+        [training_data_vi, validation_data_vi] = generate_training_data_vi(350);
+        training_data = training_data_vi; %#ok<NASGU>
+        validation_data = validation_data_vi; %#ok<NASGU>
+        save(data_vi_file, 'training_data', 'validation_data');
+        vi_data_refreshed = true;
+    end
 end
 
 retrain_vi = false;
@@ -52,7 +107,16 @@ if ~exist(model_vi_file, 'file')
 else
     loaded_vi = load(model_vi_file);
     network_vi = loaded_vi.network_vi;
-    if ~isfield(network_vi, 'version') || network_vi.version < 4
+
+    vi_ref = nn_init_vi();
+    vi_scale_mismatch = ...
+        (~isfield(network_vi, 'action_limit') || abs(network_vi.action_limit - vi_ref.action_limit) > 1e-9) || ...
+        (~isfield(network_vi, 'V_in_max') || abs(network_vi.V_in_max - vi_ref.V_in_max) > 1e-9) || ...
+        (~isfield(network_vi, 'I_in_max') || abs(network_vi.I_in_max - vi_ref.I_in_max) > 1e-9) || ...
+        (~isfield(network_vi, 'output_min') || abs(network_vi.output_min - vi_ref.output_min) > 1e-9) || ...
+        (~isfield(network_vi, 'output_max') || abs(network_vi.output_max - vi_ref.output_max) > 1e-9);
+
+    if ~isfield(network_vi, 'version') || network_vi.version < 4 || vi_scale_mismatch || vi_data_refreshed
         retrain_vi = true;
     end
 end
@@ -175,7 +239,8 @@ for scenario_idx = 1:length(scenarios)
     dV_cmd_pure = zeros(1, num_steps);
     dV_cmd_hyb = zeros(1, num_steps);
 
-    update_counter = 0;
+    update_counter_po = 0;
+    update_counter_pyr = 0;
     update_period = 3;
     dV_po = 2.0;       % масштабовано під масив 10s × 2p (Voc_arr=329 V)
 
@@ -191,7 +256,7 @@ for scenario_idx = 1:length(scenarios)
         [~, p_at_v_po, ~] = calculate_panel_output(G, T, V_po(i));
         P_po(i) = p_at_v_po;
 
-        if update_counter == 0
+        if update_counter_po == 0
             v_new = mppt_po(V_po_prev, P_po_prev, V_po(i), P_po(i), dV_po);
             if i < num_steps
                 V_po(i+1) = v_new;
@@ -203,13 +268,13 @@ for scenario_idx = 1:length(scenarios)
                 V_po(i+1) = V_po(i);
             end
         end
-        update_counter = mod(update_counter + 1, update_period);
+        update_counter_po = mod(update_counter_po + 1, update_period);
 
         % P&O + піранометр (адаптивний)
         [~, p_at_v_po_pyr, ~] = calculate_panel_output(G, T, V_po_pyr(i));
         P_po_pyr(i) = p_at_v_po_pyr;
 
-        if update_counter == 0
+        if update_counter_pyr == 0
             G_prev = irradiance_cloudy(max(1, i-1));
             v_new_pyr = mppt_po_adaptive( ...
                 V_po_pyr_prev, P_po_pyr_prev, V_po_pyr(i), P_po_pyr(i), G, G_prev, dV_po);
@@ -223,6 +288,7 @@ for scenario_idx = 1:length(scenarios)
                 V_po_pyr(i+1) = V_po_pyr(i);
             end
         end
+        update_counter_pyr = mod(update_counter_pyr + 1, update_period);
 
         % NN-GT
         V_nn(i) = nn_forward(network, [G; T]);
