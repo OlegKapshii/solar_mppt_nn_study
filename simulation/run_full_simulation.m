@@ -11,7 +11,10 @@ addpath(fullfile(project_dir, 'cloud_model'));
 addpath(fullfile(project_dir, 'mppt_classical'));
 addpath(fullfile(project_dir, 'neural_network'));
 addpath(fullfile(project_dir, 'data_generation'));
+addpath(fullfile(project_dir, 'compat'));   % Octave-сумісні polyfill'и
 addpath(sim_dir);
+
+use_safe_toolkit();   % gnuplot замість fltk — обхід Win32 err 87
 
 fprintf('=== Симуляція MPPT системи (NN-VI v4) ===\n');
 fprintf('Алгоритми: P&O | NN-GT (G,T входи) | NN-VI Hybrid (V,V_prev,I,P,dV,dP входи)\n\n');

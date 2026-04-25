@@ -16,7 +16,10 @@ addpath(fullfile(project_dir, 'cloud_model'));
 addpath(fullfile(project_dir, 'mppt_classical'));
 addpath(fullfile(project_dir, 'neural_network'));
 addpath(fullfile(project_dir, 'data_generation'));
+addpath(fullfile(project_dir, 'compat'));
 addpath(sim_dir);
+
+use_safe_toolkit();   % gnuplot замість fltk — обхід Win32 err 87
 
 fprintf('=== ПОРІВНЮВАЛЬНЕ ДОСЛІДЖЕННЯ MPPT АЛГОРИТМІВ ===\n');
 fprintf('Алгоритми: P&O | P&O+Pyr | NN-GT | NN-VI Pure | NN-VI Hybrid\n\n');

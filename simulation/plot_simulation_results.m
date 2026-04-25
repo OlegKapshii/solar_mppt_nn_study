@@ -1,9 +1,11 @@
 % Функція для візуалізації результатів симуляції
 
 function plot_simulation_results(results)
-    
+
+    if exist('use_safe_toolkit', 'file'), use_safe_toolkit(); end
+
     time_hours = results.time / 3600;  % Переведення в години
-    
+
     figure('Name', 'Результати симуляції MPPT', 'NumberTitle', 'off', 'Position', [100 100 1200 800]);
     
     % Графік 1: Сонячна радіація

@@ -111,39 +111,51 @@ function [training_data, validation_data] = generate_training_data(num_points)
     fprintf('\n✓ Дані збережені в data_generation/training_data.mat\n');
     
     % Візуалізація розподілу даних
-    figure('Name', 'Розподіл тренувальних даних', 'NumberTitle', 'off');
-    
-    % Графік 1: Освітленість vs Температура
-    subplot(2, 2, 1);
-    scatter(training_data.G, training_data.T, 50, training_data.V, 'filled');
-    colorbar;
-    xlabel('Освітленість [W/m²]');
-    ylabel('Температура [°C]');
-    title('Розподіл даних (колір - оптимальна напруга)');
-    grid on;
-    
-    % Графік 2: Оптимальна напруга
-    subplot(2, 2, 2);
-    plot(training_data.G, training_data.V, 'o', 'MarkerSize', 4);
-    xlabel('Освітленість [W/m²]');
-    ylabel('Оптимальна напруга [V]');
-    title('Оптимальна напруга vs Освітленість');
-    grid on;
-    
-    % Графік 3: Потужність
-    subplot(2, 2, 3);
-    scatter3(training_data.G, training_data.T, training_data.P, 30, training_data.P, 'filled');
-    xlabel('Освітленість [W/m²]');
-    ylabel('Температура [°C]');
-    zlabel('Потужність [W]');
-    title('Потужність в залежності від умов');
-    
-    % Графік 4: Гістограма оптимальних напруг
-    subplot(2, 2, 4);
-    histogram(training_data.V, 20);
-    xlabel('Оптимальна напруга [V]');
-    ylabel('Частота');
-    title('Розподіл оптимальних напруг');
-    grid on;
-    
+    % Перемикаємо тулкіт на gnuplot — fltk на Windows падає з err 87 (LoadLibrary)
+    % при scatter3/складних графіках. Дані ВЖЕ збережено вище —
+    % якщо рендер усе одно впаде, дані не загубляться.
+    if exist('use_safe_toolkit', 'file'), use_safe_toolkit(); end
+    try
+        figure('Name', 'Розподіл тренувальних даних', 'NumberTitle', 'off');
+
+        % Графік 1: Освітленість vs Температура
+        subplot(2, 2, 1);
+        scatter(training_data.G, training_data.T, 50, training_data.V, 'filled');
+        colorbar;
+        xlabel('Освітленість [W/m²]');
+        ylabel('Температура [°C]');
+        title('Розподіл даних (колір - оптимальна напруга)');
+        grid on;
+
+        % Графік 2: Оптимальна напруга
+        subplot(2, 2, 2);
+        plot(training_data.G, training_data.V, 'o', 'MarkerSize', 4);
+        xlabel('Освітленість [W/m²]');
+        ylabel('Оптимальна напруга [V]');
+        title('Оптимальна напруга vs Освітленість');
+        grid on;
+
+        % Графік 3: Потужність — 2D scatter з кольоровим кодуванням замість 3D
+        % (3D scatter в gnuplot теж працює, але 2D надійніше і інформативно)
+        subplot(2, 2, 3);
+        scatter(training_data.G, training_data.T, 50, training_data.P, 'filled');
+        colorbar;
+        xlabel('Освітленість [W/m²]');
+        ylabel('Температура [°C]');
+        title('Потужність [W] (колір)');
+        grid on;
+
+        % Графік 4: Гістограма оптимальних напруг
+        subplot(2, 2, 4);
+        hist(training_data.V, 20);
+        xlabel('Оптимальна напруга [V]');
+        ylabel('Частота');
+        title('Розподіл оптимальних напруг');
+        grid on;
+    catch err
+        warning('generate_training_data:plot_failed', ...
+                'Графік не вдалося побудувати (%s). Дані збережено у training_data.mat — наступним кроком запустіть run_full_simulation.', ...
+                err.message);
+    end
+
 end

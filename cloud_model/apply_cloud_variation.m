@@ -39,7 +39,11 @@ function irradiance_cloudy = apply_cloud_variation(irradiance_clear, scenario, t
     end
 
     cloud_factor = ones(size(time_vec));
-    scenario = lower(string(scenario));
+    % string() належить до пакета datatypes (не завантажений за замовч.).
+    % Працюємо з char-масивом — у switch порівняння однаково коректне.
+    if ischar(scenario) || (exist('isstring','builtin') && isstring(scenario))
+        scenario = lower(char(scenario));
+    end
 
     % Детермінований шум для відтворюваних експериментів
     rng(2026, 'twister');

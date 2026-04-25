@@ -18,6 +18,10 @@ addpath(fullfile(project_dir, 'neural_network'));
 addpath(fullfile(project_dir, 'data_generation'));
 addpath(fullfile(project_dir, 'simulation'));
 addpath(fullfile(project_dir, 'analysis'));
+addpath(fullfile(project_dir, 'compat'));   % Octave-сумісні polyfill'и
+
+% Перемикаємо на gnuplot, щоб обійти Win32 LoadLibrary err 87 у fltk
+use_safe_toolkit();
 
 fprintf('╔════════════════════════════════════════════════════════════════╗\n');
 fprintf('║  Симуляція MPPT систем: P&O vs NN-GT vs NN-VI                ║\n');

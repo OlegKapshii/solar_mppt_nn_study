@@ -16,7 +16,10 @@ addpath(fullfile(project_dir, 'cloud_model'));
 addpath(fullfile(project_dir, 'mppt_classical'));
 addpath(fullfile(project_dir, 'neural_network'));
 addpath(fullfile(project_dir, 'data_generation'));
+addpath(fullfile(project_dir, 'compat'));
 addpath(sim_dir);
+
+use_safe_toolkit();   % gnuplot замість fltk — обхід Win32 err 87
 
 fprintf('=== ЕКСПЕРИМЕНТ: P&O з Піранометром vs. NN-GT ===\n\n');
 fprintf('Гіпотеза: Чи класичний P&O з освітленістю краще за NN-GT?\n');
