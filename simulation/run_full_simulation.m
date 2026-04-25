@@ -18,8 +18,8 @@ fprintf('Алгоритми: P&O | NN-GT (G,T входи) | NN-VI Hybrid (V,I,P,
 
 data_file    = fullfile(project_dir, 'data_generation', 'training_data.mat');
 model_file   = fullfile(project_dir, 'neural_network', 'trained_network.mat');
-data_vi_file  = fullfile(project_dir, 'data_generation', 'training_data_vi_v2.mat');
-model_vi_file = fullfile(project_dir, 'neural_network', 'trained_network_vi_v2.mat');
+data_vi_file  = fullfile(project_dir, 'data_generation', 'training_data_vi_v3.mat');
+model_vi_file = fullfile(project_dir, 'neural_network', 'trained_network_vi_v3.mat');
 
 % КРОК 1: Генерація даних (якщо ще не існує)
 if ~exist(data_file, 'file')
@@ -56,7 +56,7 @@ network_vi = nn_init_vi();
 
 if ~exist(data_vi_file, 'file')
     fprintf('VI тренувальних даних не знайдено. Генеруємо...\n\n');
-    [training_data_vi, validation_data_vi] = generate_training_data_vi(200);
+    [training_data_vi, validation_data_vi] = generate_training_data_vi(260);
 else
     fprintf('Завантажуємо VI тренувальні дані...\n');
     loaded_vi = load(data_vi_file);
@@ -74,7 +74,7 @@ else
     fprintf('Завантажуємо натреновану мережу NN-VI...\n');
     loaded_vi_model = load(model_vi_file);
     network_vi = loaded_vi_model.network_vi;
-    if ~isfield(network_vi, 'version') || network_vi.version < 2
+    if ~isfield(network_vi, 'version') || network_vi.version < 3
         fprintf('Знайдена застаріла NN-VI модель. Перетреновуємо...\n\n');
         [network_vi, training_info_vi] = nn_train_vi(network_vi, training_data_vi, validation_data_vi);
         save(model_vi_file, 'network_vi', 'training_info_vi');

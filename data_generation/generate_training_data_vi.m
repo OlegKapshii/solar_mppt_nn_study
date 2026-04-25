@@ -24,6 +24,7 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
 
     % Кількість локальних переходів для кожної умови (G, T)
     N_per_condition = 24;
+    action_limit = 1.2;
 
     total = num_conditions * N_per_condition;
 
@@ -76,28 +77,22 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
                   + 2.0 * log(max(G_ratio, 0.05));
         V_oc = max(10, V_oc);
 
+        % Формуємо локальну траєкторію, щоб dV/dP були схожі на реальний контур
+        V_prev = 0.05 * V_oc + 0.92 * V_oc * rand();
+        V_prev = max(0.5, min(0.97 * V_oc, V_prev));
+        [~, P_prev, ~] = calculate_panel_output(G, T, V_prev);
+
+        V_current = V_prev + 1.5 * randn();
+        V_current = max(0.5, min(0.97 * V_oc, V_current));
+
         for j = 1:N_per_condition
-            % Більшість прикладів генеруємо поблизу MPP, але частину - далеко від нього
-            if rand < 0.7
-                V_current = V_opt + 6 * randn();
-            else
-                V_current = 0.05 * V_oc + 0.92 * V_oc * rand();
-            end
-            V_current = max(0.5, min(0.97 * V_oc, V_current));
-
-            % Попередня точка потрібна для dV та dP
-            V_prev = V_current + 2.5 * randn();
-            V_prev = max(0.5, min(0.97 * V_oc, V_prev));
-
             [~, P_current, I_current] = calculate_panel_output(G, T, V_current);
-            [~, P_prev, ~] = calculate_panel_output(G, T, V_prev);
 
             dV = V_current - V_prev;
             dP = P_current - P_prev;
 
-            % Мережа вчиться видавати керувальний крок, а не абсолютну напругу.
             target_dV = V_opt - V_current;
-            target_dV = max(-4, min(4, target_dV));
+            target_dV = max(-action_limit, min(action_limit, target_dV));
 
             V_in_all(idx)      = V_current;
             I_in_all(idx)      = max(0, I_current);
@@ -106,6 +101,15 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
             dP_all(idx)        = dP;
             target_dV_all(idx) = target_dV;
             idx = idx + 1;
+
+            % Псевдоконтур: рух до MPP з шумом для різноманітності
+            u = 0.7 * target_dV + 0.25 * randn();
+            u = max(-action_limit, min(action_limit, u));
+
+            V_prev = V_current;
+            P_prev = P_current;
+            V_current = V_current + u;
+            V_current = max(0.5, min(0.97 * V_oc, V_current));
         end
 
         if mod(k, max(1, floor(num_conditions / 10))) == 0
@@ -138,7 +142,7 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
         num_train, total - num_train);
 
     % Збереження
-    save_path = fullfile(this_dir, 'training_data_vi_v2.mat');
+    save_path = fullfile(this_dir, 'training_data_vi_v3.mat');
     save(save_path, 'training_data', 'validation_data', 'G_pts', 'T_pts');
     fprintf('✓ Збережено в %s\n\n', save_path);
 

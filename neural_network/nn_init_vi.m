@@ -15,7 +15,7 @@
 function network = nn_init_vi()
     % Ініціалізація мережі з випадковими вагами за Xavier методом
 
-    network.version = 2;
+    network.version = 3;
 
     % Розміри шарів: 5 входів -> 16 -> 8 -> 1 вихід (deltaV)
     network.layer_sizes = [5, 16, 8, 1];
@@ -35,8 +35,10 @@ function network = nn_init_vi()
     network.dP_max   = 1200;   % Максимальна зміна потужності [W]
 
     % Діапазони виходу: корекція напруги deltaV
-    network.output_min = -4;
-    network.output_max = 4;
+    % Узгоджено з runtime-обмеженням керування
+    network.output_min = -1.2;
+    network.output_max = 1.2;
+    network.action_limit = 1.2;
 
     network.W = {};
     network.b = {};

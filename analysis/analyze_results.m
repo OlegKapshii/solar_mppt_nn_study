@@ -1,157 +1,133 @@
-% Аналіз результатів симуляції та статистичні розрахунки
+% Аналіз результатів порівняння MPPT алгоритмів
 
 clear; close all; clc;
 
 analysis_dir = fileparts(mfilename('fullpath'));
 project_dir = fileparts(analysis_dir);
 
-addpath(fullfile(project_dir, 'simulation'));
-
-fprintf('=== АНАЛІЗ РЕЗУЛЬТАТІВ MPPT ===\n\n');
-
 comparison_file = fullfile(project_dir, 'simulation', 'comparison_results.mat');
 if ~exist(comparison_file, 'file')
-    fprintf('Файл порівняльних результатів не знайдений!\n');
-    fprintf('Спочатку запустіть compare_algorithms\n');
+    fprintf('Файл comparison_results.mat не знайдено. Спочатку запустіть compare_algorithms.\n');
     return;
 end
 
 loaded = load(comparison_file);
 all_results = loaded.all_results;
-fprintf('✓ Результати завантажені\n\n');
 
-fprintf('=== ДЕТАЛЬНИЙ АНАЛІЗ ПО СЦЕНАРІЯХ ===\n\n');
+N = length(all_results);
+if N == 0
+    fprintf('Немає результатів для аналізу.\n');
+    return;
+end
 
-for i = 1:length(all_results)
-    result = all_results{i};
+has_vi_pure = isfield(all_results{1}.metrics, 'efficiency_nn_vi_pure');
+has_vi_hybrid = isfield(all_results{1}.metrics, 'efficiency_nn_vi');
 
+fprintf('=== АНАЛІЗ РЕЗУЛЬТАТІВ MPPT ===\n\n');
+
+for i = 1:N
+    r = all_results{i};
     fprintf('─────────────────────────────────────────\n');
-    fprintf('Сценарій: %s\n', result.scenario_name);
+    fprintf('Сценарій: %s\n', r.scenario_name);
     fprintf('─────────────────────────────────────────\n');
 
-    fprintf('\n1. ЕНЕРГІЯ І ЕФЕКТИВНІСТЬ:\n');
-    fprintf('   P&O MPPT:    %.2f Wh (%.2f%%)\n', result.metrics.energy_po, result.metrics.efficiency_po);
-    fprintf('   NN-GT MPPT:  %.2f Wh (%.2f%%)  [входи: G, T]\n', result.metrics.energy_nn, result.metrics.efficiency_nn);
-    if isfield(result.metrics, 'energy_nn_vi')
-        fprintf('   NN-VI Hybrid: %.2f Wh (%.2f%%)  [NN + локальна P&O корекція]\n', result.metrics.energy_nn_vi, result.metrics.efficiency_nn_vi);
+    fprintf('Енергія та ефективність:\n');
+    fprintf('  P&O:      %.2f Wh (%.2f%%)\n', r.metrics.energy_po, r.metrics.efficiency_po);
+    fprintf('  NN-GT:    %.2f Wh (%.2f%%)\n', r.metrics.energy_nn, r.metrics.efficiency_nn);
+    if has_vi_pure
+        fprintf('  NN-VI Pure:   %.2f Wh (%.2f%%)\n', r.metrics.energy_nn_vi_pure, r.metrics.efficiency_nn_vi_pure);
     end
-    fprintf('   Оптимум:     %.2f Wh\n', result.metrics.energy_optimal);
-
-    energy_diff_gt = result.metrics.energy_nn - result.metrics.energy_po;
-    fprintf('   Перевага NN-GT над P&O: %.2f Wh (%.2f%%)\n', energy_diff_gt, ...
-        100 * energy_diff_gt / max(result.metrics.energy_po, eps));
-    if isfield(result.metrics, 'energy_nn_vi')
-        energy_diff_vi = result.metrics.energy_nn_vi - result.metrics.energy_po;
-        fprintf('   Перевага NN-VI Hybrid над P&O: %.2f Wh (%.2f%%)\n', energy_diff_vi, ...
-            100 * energy_diff_vi / max(result.metrics.energy_po, eps));
+    if has_vi_hybrid
+        fprintf('  NN-VI Hybrid: %.2f Wh (%.2f%%)\n', r.metrics.energy_nn_vi, r.metrics.efficiency_nn_vi);
     end
+    fprintf('  Оптимум:  %.2f Wh\n', r.metrics.energy_optimal);
 
-    fprintf('\n2. ТОЧНІСТЬ (помилка напруги):\n');
-    fprintf('   P&O:    %.3f V\n', result.metrics.error_po);
-    fprintf('   NN-GT:  %.3f V\n', result.metrics.error_nn);
-    if isfield(result.metrics, 'error_nn_vi')
-        fprintf('   NN-VI Hybrid: %.3f V\n', result.metrics.error_nn_vi);
+    fprintf('Похибка напруги (MAE):\n');
+    fprintf('  P&O:   %.3f V\n', r.metrics.error_po);
+    fprintf('  NN-GT: %.3f V\n', r.metrics.error_nn);
+    if has_vi_pure
+        fprintf('  NN-VI Pure:   %.3f V\n', r.metrics.error_nn_vi_pure);
+    end
+    if has_vi_hybrid
+        fprintf('  NN-VI Hybrid: %.3f V\n', r.metrics.error_nn_vi);
     end
 
-    fprintf('\n3. СТАБІЛЬНІСТЬ (std(dV)):\n');
-    fprintf('   P&O:    %.4f V\n', result.metrics.oscill_po);
-    fprintf('   NN-GT:  %.4f V\n', result.metrics.oscill_nn);
-    if isfield(result.metrics, 'oscill_nn_vi')
-        fprintf('   NN-VI Hybrid: %.4f V\n', result.metrics.oscill_nn_vi);
+    fprintf('Стабільність (std(dV)):\n');
+    fprintf('  P&O:   %.4f V\n', r.metrics.oscill_po);
+    fprintf('  NN-GT: %.4f V\n', r.metrics.oscill_nn);
+    if has_vi_pure
+        fprintf('  NN-VI Pure:   %.4f V\n', r.metrics.oscill_nn_vi_pure);
     end
-
-    dG = diff(result.irradiance_cloudy);
-    locs = find(abs(dG) > 50);
-    fprintf('\n4. РАПТОВІ ЗМІНИ ОСВІТЛЕНОСТІ: %d подій\n', numel(locs));
+    if has_vi_hybrid
+        fprintf('  NN-VI Hybrid: %.4f V\n', r.metrics.oscill_nn_vi);
+    end
 
     fprintf('\n');
 end
+
+po_eff = cellfun(@(r) r.metrics.efficiency_po, all_results);
+nn_eff = cellfun(@(r) r.metrics.efficiency_nn, all_results);
+po_err = cellfun(@(r) r.metrics.error_po, all_results);
+nn_err = cellfun(@(r) r.metrics.error_nn, all_results);
 
 fprintf('═════════════════════════════════════════\n');
 fprintf('=== ЗАГАЛЬНЕ ПОРІВНЯННЯ ===\n');
 fprintf('═════════════════════════════════════════\n\n');
 
-N = length(all_results);
-po_eff  = zeros(1, N);
-nn_eff  = zeros(1, N);
-po_err  = zeros(1, N);
-nn_err  = zeros(1, N);
-has_vi  = isfield(all_results{1}.metrics, 'efficiency_nn_vi');
-nn_vi_eff = zeros(1, N);
-nn_vi_err = zeros(1, N);
-
-for i = 1:N
-    po_eff(i) = all_results{i}.metrics.efficiency_po;
-    nn_eff(i) = all_results{i}.metrics.efficiency_nn;
-    po_err(i) = all_results{i}.metrics.error_po;
-    nn_err(i) = all_results{i}.metrics.error_nn;
-    if has_vi
-        nn_vi_eff(i) = all_results{i}.metrics.efficiency_nn_vi;
-        nn_vi_err(i) = all_results{i}.metrics.error_nn_vi;
-    end
+fprintf('Середня ефективність P&O:   %.3f%%\n', mean(po_eff));
+fprintf('Середня ефективність NN-GT: %.3f%%\n', mean(nn_eff));
+if has_vi_pure
+    vi_p_eff = cellfun(@(r) r.metrics.efficiency_nn_vi_pure, all_results);
+    fprintf('Середня ефективність NN-VI Pure:   %.3f%%\n', mean(vi_p_eff));
+end
+if has_vi_hybrid
+    vi_h_eff = cellfun(@(r) r.metrics.efficiency_nn_vi, all_results);
+    fprintf('Середня ефективність NN-VI Hybrid: %.3f%%\n', mean(vi_h_eff));
 end
 
-fprintf('На основі %d сценаріїв:\n\n', N);
-fprintf('Середня ефективність P&O:    %.2f%%\n', mean(po_eff));
-fprintf('Середня ефективність NN-GT:  %.2f%%  (входи: G, T)\n', mean(nn_eff));
-if has_vi
-    fprintf('Середня ефективність NN-VI Hybrid:  %.2f%%\n', mean(nn_vi_eff));
+fprintf('\nСередня MAE P&O:   %.3f V\n', mean(po_err));
+fprintf('Середня MAE NN-GT: %.3f V\n', mean(nn_err));
+if has_vi_pure
+    vi_p_err = cellfun(@(r) r.metrics.error_nn_vi_pure, all_results);
+    fprintf('Середня MAE NN-VI Pure:   %.3f V\n', mean(vi_p_err));
 end
-fprintf('\nПриріст NN-GT над P&O: +%.2f%%\n', mean(nn_eff) - mean(po_eff));
-if has_vi
-    fprintf('Приріст NN-VI Hybrid над P&O: +%.2f%%\n', mean(nn_vi_eff) - mean(po_eff));
+if has_vi_hybrid
+    vi_h_err = cellfun(@(r) r.metrics.error_nn_vi, all_results);
+    fprintf('Середня MAE NN-VI Hybrid: %.3f V\n', mean(vi_h_err));
 end
-
-fprintf('\nСередня помилка P&O:    %.3f V\n', mean(po_err));
-fprintf('Середня помилка NN-GT:  %.3f V\n', mean(nn_err));
-if has_vi
-    fprintf('Середня помилка NN-VI Hybrid:  %.3f V\n', mean(nn_vi_err));
-end
-
-fprintf('═════════════════════════════════════════\n');
-fprintf('=== ВИСНОВКИ ===\n');
-fprintf('═════════════════════════════════════════\n\n');
-fprintf('1. Алгоритм NN-GT використовує освітленість G та температуру T —\n');
-fprintf('   неприпустимо в реальній системі без окремого піранометра.\n');
-    fprintf('2. Алгоритм NN-VI Hybrid використовує прогноз NN, але коригує його\n');
-    fprintf('   локальною P&O логікою, якщо крок призводить до втрати потужності.\n');
-fprintf('3. P&O простий і надійний, але має осциляції навколо робочої точки.\n');
-fprintf('4. На швидких змінах хмарності P&O втрачає більше енергії через запізнення.\n');
 
 report_file = fullfile(analysis_dir, 'analysis_report.txt');
 fid = fopen(report_file, 'w');
 
 fprintf(fid, 'ЗВІТ АНАЛІЗУ MPPT АЛГОРИТМІВ\n');
 fprintf(fid, '============================\n\n');
-fprintf(fid, 'ДАТА АНАЛІЗУ: %s\n\n', datestr(now));
+fprintf(fid, 'Дата: %s\n\n', datestr(now));
 
 for i = 1:N
     r = all_results{i};
     fprintf(fid, '%s\n', r.scenario_name);
-    fprintf(fid, '  P&O:   %.2f Wh (%.2f%%), error=%.3f V\n', ...
-        r.metrics.energy_po, r.metrics.efficiency_po, r.metrics.error_po);
-    fprintf(fid, '  NN-GT: %.2f Wh (%.2f%%), error=%.3f V  [входи: G, T]\n', ...
-        r.metrics.energy_nn, r.metrics.efficiency_nn, r.metrics.error_nn);
-    if isfield(r.metrics, 'energy_nn_vi')
-        fprintf(fid, '  NN-VI Hybrid: %.2f Wh (%.2f%%), error=%.3f V  [NN + локальна P&O корекція]\n', ...
-            r.metrics.energy_nn_vi, r.metrics.efficiency_nn_vi, r.metrics.error_nn_vi);
+    fprintf(fid, '  P&O:   %.2f Wh (%.2f%%), MAE=%.3f V\n', r.metrics.energy_po, r.metrics.efficiency_po, r.metrics.error_po);
+    fprintf(fid, '  NN-GT: %.2f Wh (%.2f%%), MAE=%.3f V\n', r.metrics.energy_nn, r.metrics.efficiency_nn, r.metrics.error_nn);
+    if has_vi_pure
+        fprintf(fid, '  NN-VI Pure:   %.2f Wh (%.2f%%), MAE=%.3f V\n', r.metrics.energy_nn_vi_pure, r.metrics.efficiency_nn_vi_pure, r.metrics.error_nn_vi_pure);
     end
-    fprintf(fid, '\n');
+    if has_vi_hybrid
+        fprintf(fid, '  NN-VI Hybrid: %.2f Wh (%.2f%%), MAE=%.3f V\n', r.metrics.energy_nn_vi, r.metrics.efficiency_nn_vi, r.metrics.error_nn_vi);
+    end
+    fprintf(fid, '  Оптимум: %.2f Wh\n\n', r.metrics.energy_optimal);
 end
 
-fprintf(fid, 'СЕРЕДНІ МЕТРИКИ\n');
-fprintf(fid, 'P&O   ефективність: %.2f%%\n', mean(po_eff));
-fprintf(fid, 'NN-GT ефективність: %.2f%%\n', mean(nn_eff));
-if has_vi
-    fprintf(fid, 'NN-VI Hybrid ефективність: %.2f%%\n', mean(nn_vi_eff));
+fprintf(fid, 'СЕРЕДНІ ЗНАЧЕННЯ\n');
+fprintf(fid, 'P&O eff: %.3f%% | MAE: %.3f V\n', mean(po_eff), mean(po_err));
+fprintf(fid, 'NN-GT eff: %.3f%% | MAE: %.3f V\n', mean(nn_eff), mean(nn_err));
+if has_vi_pure
+    fprintf(fid, 'NN-VI Pure eff: %.3f%% | MAE: %.3f V\n', mean(vi_p_eff), mean(vi_p_err));
 end
-fprintf(fid, 'P&O   помилка: %.3f V\n', mean(po_err));
-fprintf(fid, 'NN-GT помилка: %.3f V\n', mean(nn_err));
-if has_vi
-    fprintf(fid, 'NN-VI Hybrid помилка: %.3f V\n', mean(nn_vi_err));
+if has_vi_hybrid
+    fprintf(fid, 'NN-VI Hybrid eff: %.3f%% | MAE: %.3f V\n', mean(vi_h_eff), mean(vi_h_err));
 end
 
 fclose(fid);
 
-fprintf('✓ Результати експортовані в analysis/analysis_report.txt\n\n');
+fprintf('\n✓ Звіт збережено: analysis/analysis_report.txt\n');
 fprintf('=== АНАЛІЗ ЗАВЕРШЕНО ===\n');
