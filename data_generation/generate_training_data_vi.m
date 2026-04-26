@@ -1,4 +1,4 @@
-% Генерація синтетичних даних для тренування динамічної VI нейронної мережи MPPT (v4)
+% Генерація синтетичних даних для тренування динамічної VI нейронної мережи MPPT (v5)
 %
 % На відміну від generate_training_data (використовує G та T як входи),
 % тут генеруються вектори ознак (V, V_prev, I, P, dV, dP) -> target_dV.
@@ -15,7 +15,7 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
     %   validation_data - структура з полями .V_in, .V_prev, .I_in, .P_in, .dV, .dP, .target_dV (20%)
 
     if nargin < 1
-        num_conditions = 350;  % Збільшена кількість умов для більшої мережі (v4)
+        num_conditions = 350;  % Збільшена кількість умов для більшої мережі (v5)
     end
 
     this_dir    = fileparts(mfilename('fullpath'));
@@ -23,8 +23,10 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
     addpath(fullfile(project_dir, 'solar_model'));
     addpath(fullfile(project_dir, 'neural_network'));
 
+    dataset_version = 5;
+
     % Кількість локальних переходів для кожної умови (G, T)
-    N_per_condition = 32;  % Збільшена кількість точок на умову
+    N_per_condition = 48;  % Більше різноманітних станів на одну умову
     % action_limit має узгоджуватись з nn_init_vi.m::action_limit, інакше
     % тренувальні дані будуть обрізані до іншого діапазону, ніж очікує
     % мережа на інференсі.
@@ -33,7 +35,7 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
 
     total = num_conditions * N_per_condition;
 
-    fprintf('Генерація VI тренувальних даних (v4)...\n');
+    fprintf('Генерація VI тренувальних даних (v5)...\n');
     fprintf('Умов (G,T): %d, Точок на умову: %d, Всього: %d\n', ...
         num_conditions, N_per_condition, total);
 
@@ -66,8 +68,6 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
     fprintf('Розрахунок точок I-V кривої...\n');
     fprintf('Прогрес: ');
 
-    panel = get_panel_characteristics();
-
     idx = 1;
     for k = 1:num_conditions
         G = G_pts(k);
@@ -76,29 +76,15 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
         % Оптимальна напруга для цієї умови
         [V_opt, ~, ~] = calculate_panel_output(G, T);
 
-        % Розрахунок Voc для цієї умови (щоб знати діапазон кривої I-V)
-        dT      = T - 25;
-        G_ratio = G / 1000;
-        V_oc    = panel.V_oc_stc * panel.series + panel.beta_V * panel.series * dT ...
-                  + 2.0 * log(max(G_ratio, 0.05));
-        V_oc = max(10, V_oc);
-
-        % Формуємо локальну траєкторію, щоб dV/dP були схожі на реальний контур
-        V_prev = 0.05 * V_oc + 0.92 * V_oc * rand();
-        V_prev = max(0.5, min(0.97 * V_oc, V_prev));
-        [~, P_prev, ~] = calculate_panel_output(G, T, V_prev);
-
-        V_current = V_prev + 1.5 * randn();
-        V_current = max(0.5, min(0.97 * V_oc, V_current));
-
         for j = 1:N_per_condition
+            [V_prev, V_current] = sample_vi_state(V_opt);
+            [~, P_prev, ~] = calculate_panel_output(G, T, V_prev);
             [~, P_current, I_current] = calculate_panel_output(G, T, V_current);
 
             dV = V_current - V_prev;
             dP = P_current - P_prev;
 
-            target_dV = V_opt - V_current;
-            target_dV = max(-action_limit, min(action_limit, target_dV));
+            target_dV = teacher_delta_v(V_current, V_opt, dV, dP, action_limit);
 
             V_in_all(idx)      = V_current;
             V_prev_all(idx)    = V_prev;      % НОВЕ: зберігаємо попередню напругу
@@ -108,15 +94,6 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
             dP_all(idx)        = dP;
             target_dV_all(idx) = target_dV;
             idx = idx + 1;
-
-            % Псевдоконтур: рух до MPP з шумом для різноманітності
-            u = 0.7 * target_dV + 0.25 * randn();
-            u = max(-action_limit, min(action_limit, u));
-
-            V_prev = V_current;
-            P_prev = P_current;
-            V_current = V_current + u;
-            V_current = max(0.5, min(0.97 * V_oc, V_current));
         end
 
         if mod(k, max(1, floor(num_conditions / 10))) == 0
@@ -151,8 +128,60 @@ function [training_data, validation_data] = generate_training_data_vi(num_condit
         num_train, total - num_train);
 
     % Збереження (v4 версія)
-    save_path = fullfile(this_dir, 'training_data_vi_v4.mat');
-    save(save_path, 'training_data', 'validation_data', 'G_pts', 'T_pts');
+    save_path = fullfile(this_dir, 'training_data_vi_v5.mat');
+    save(save_path, 'training_data', 'validation_data', 'G_pts', 'T_pts', 'dataset_version');
     fprintf('✓ Збережено в %s\n\n', save_path);
 
+end
+
+function [V_prev, V_current] = sample_vi_state(V_opt)
+    % Покриваємо три режими: далеко від MPP, зрив/відновлення, локальна область.
+    region = rand();
+
+    if region < 0.40
+        % Далеко від MPP: pure мережа має вміти швидко повертатися.
+        if rand() < 0.5
+            V_current = max(30, V_opt - (35 + 85 * rand()));
+        else
+            V_current = min(320, V_opt + (35 + 85 * rand()));
+        end
+        V_prev = V_current - (2 * rand() - 1) * (2 + 6 * rand());
+    elseif region < 0.75
+        % Recovery після неправильного локального кроку.
+        V_current = min(320, max(30, V_opt + 18 * randn()));
+        wrong_dir = sign(rand() - 0.5);
+        if wrong_dir == 0
+            wrong_dir = 1;
+        end
+        V_prev = V_current - wrong_dir * (2 + 6 * rand());
+    else
+        % Біля MPP: мережа має вміти демпфувати та точно доводити.
+        V_current = min(320, max(30, V_opt + 8 * randn()));
+        V_prev = V_current - (2 * rand() - 1) * (0.2 + 2.0 * rand());
+    end
+
+    V_prev = min(320, max(30, V_prev));
+    V_current = min(320, max(30, V_current));
+end
+
+function target_dV = teacher_delta_v(V_current, V_opt, dV, dP, action_limit)
+    V_err = V_opt - V_current;
+    abs_err = abs(V_err);
+
+    if abs_err > 70
+        target_dV = sign(V_err) * action_limit;
+    elseif abs_err > 30
+        target_dV = sign(V_err) * 0.85 * action_limit;
+    elseif abs_err > 10
+        target_dV = 0.55 * V_err;
+    else
+        target_dV = 0.30 * V_err;
+    end
+
+    % Якщо попередній рух знижував потужність, робимо корекцію агресивнішою.
+    if dP < -10 && abs(dV) > 0.25 && sign(dV) ~= sign(V_err)
+        target_dV = target_dV + 0.35 * sign(V_err) * action_limit;
+    end
+
+    target_dV = max(-action_limit, min(action_limit, target_dV));
 end

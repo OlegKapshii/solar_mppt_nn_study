@@ -15,7 +15,7 @@
 function network = nn_init_vi()
     % Ініціалізація мережі з випадковими вагами за Xavier методом
 
-    network.version = 4;
+    network.version = 5;
 
     % Розміри шарів: 6 входів -> 24 -> 12 -> 1 вихід (deltaV)
     % Збільшена архітектура для кращого захоплення динаміки
@@ -64,12 +64,12 @@ function network = nn_init_vi()
     network.activation{3} = 'linear';    % Вихідний шар
 
     % Параметри тренування (оптимізовані для покращеної генералізації)
-    network.learning_rate = 0.002;  % Зменшена швидкість навчання для більш стабільної конвергенції
+    network.learning_rate = 0.0015;  % Трохи менша для більш гладкої policy
     network.momentum      = 0.9;
-    network.num_epochs    = 500;    % Збільшена кількість епох для кращого навчання
+    network.num_epochs    = 650;    % Більше епох для нового, більш різноманітного датасету
 
     % Інформація про мережу
-    network.name = 'Enhanced Dynamic VI-based MPPT Neural Network (v4)';
+    network.name = 'Enhanced Dynamic VI-based MPPT Neural Network (v5)';
     network.architecture_description = ...
         '6-24-12-1 (V,V_prev,I,P,dV,dP -> 24 hidden -> 12 hidden -> deltaV)';
     network.input_description = ...

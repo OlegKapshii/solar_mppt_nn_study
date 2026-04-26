@@ -1,4 +1,4 @@
-% Тренування VI нейронної мережи методом gradient descent з momentum (v4)
+% Тренування VI нейронної мережи методом gradient descent з momentum (v5)
 % Адаптація nn_train.m для роботи з вимірюваними значеннями V та I панелі
 %
 % Структура training_data:

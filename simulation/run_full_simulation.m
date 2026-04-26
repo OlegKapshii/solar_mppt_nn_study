@@ -16,13 +16,13 @@ addpath(sim_dir);
 
 use_safe_toolkit();   % gnuplot замість fltk — обхід Win32 err 87
 
-fprintf('=== Симуляція MPPT системи (NN-VI v4) ===\n');
+fprintf('=== Симуляція MPPT системи (NN-VI v5) ===\n');
 fprintf('Алгоритми: P&O | NN-GT (G,T входи) | NN-VI Hybrid (V,V_prev,I,P,dV,dP входи)\n\n');
 
 data_file    = fullfile(project_dir, 'data_generation', 'training_data.mat');
 model_file   = fullfile(project_dir, 'neural_network', 'trained_network.mat');
-data_vi_file  = fullfile(project_dir, 'data_generation', 'training_data_vi_v4.mat');
-model_vi_file = fullfile(project_dir, 'neural_network', 'trained_network_vi_v4.mat');
+data_vi_file  = fullfile(project_dir, 'data_generation', 'training_data_vi_v5.mat');
+model_vi_file = fullfile(project_dir, 'neural_network', 'trained_network_vi_v5.mat');
 
 % КРОК 1: Генерація даних (якщо ще не існує)
 gt_data_refreshed = false;
@@ -79,7 +79,7 @@ else
 end
 
 % КРОК 2б: Ініціалізація та тренування NN-VI (V, I, P, dV, dP → deltaV)
-fprintf('--- NN-VI v4 (входи: V, V_prev, I, P, dV, dP; вихід: deltaV) ---\n');
+fprintf('--- NN-VI v5 (входи: V, V_prev, I, P, dV, dP; вихід: deltaV) ---\n');
 network_vi = nn_init_vi();
 
 vi_data_refreshed = false;
@@ -96,6 +96,8 @@ else
     vi_data_stale = ...
         (~isfield(training_data_vi, 'V_in')) || ...
         (~isfield(training_data_vi, 'target_dV')) || ...
+        (~isfield(loaded_vi, 'dataset_version')) || ...
+        (loaded_vi.dataset_version < 5) || ...
         (max(training_data_vi.V_in) < 120) || ...
         (max(abs(training_data_vi.target_dV)) < 2.0);
 
@@ -111,12 +113,12 @@ else
 end
 
 if ~exist(model_vi_file, 'file')
-    fprintf('Натренованої мережи NN-VI v4 не знайдено. Розпочинаємо тренування...\n\n');
+    fprintf('Натренованої мережи NN-VI v5 не знайдено. Розпочинаємо тренування...\n\n');
     [network_vi, training_info_vi] = nn_train_vi(network_vi, training_data_vi, validation_data_vi);
     save(model_vi_file, 'network_vi', 'training_info_vi');
-    fprintf('\n✓ NN-VI v4 натренована і збережена\n\n');
+    fprintf('\n✓ NN-VI v5 натренована і збережена\n\n');
 else
-    fprintf('Завантажуємо натреновану мережу NN-VI v4...\n');
+    fprintf('Завантажуємо натреновану мережу NN-VI v5...\n');
     loaded_vi_model = load(model_vi_file);
     network_vi = loaded_vi_model.network_vi;
 
@@ -129,12 +131,12 @@ else
         (~isfield(network_vi, 'output_min') || abs(network_vi.output_min - vi_ref.output_min) > 1e-9) || ...
         (~isfield(network_vi, 'output_max') || abs(network_vi.output_max - vi_ref.output_max) > 1e-9);
 
-    if ~isfield(network_vi, 'version') || network_vi.version < 4 || vi_scale_mismatch || vi_data_refreshed
+    if ~isfield(network_vi, 'version') || network_vi.version < 5 || vi_scale_mismatch || vi_data_refreshed
         fprintf('Знайдена застаріла NN-VI модель (version/scale mismatch). Перетреновуємо...\n\n');
         [network_vi, training_info_vi] = nn_train_vi(vi_ref, training_data_vi, validation_data_vi);
         save(model_vi_file, 'network_vi', 'training_info_vi');
     end
-    fprintf('✓ NN-VI v4 завантажена (архітектура 6-24-12-1)\n\n');
+    fprintf('✓ NN-VI v5 завантажена (архітектура 6-24-12-1)\n\n');
 end
 
 % КРОК 3: Налаштування сценарію симуляції

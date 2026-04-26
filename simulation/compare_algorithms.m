@@ -68,9 +68,9 @@ if gt_scale_mismatch || gt_data_refreshed
 end
 fprintf('✓ NN-GT завантажена\n');
 
-% NN-VI v4 (покращена версія з V_prev входом та більшою архітектурою)
-model_vi_file = fullfile(project_dir, 'neural_network', 'trained_network_vi_v4.mat');
-data_vi_file = fullfile(project_dir, 'data_generation', 'training_data_vi_v4.mat');
+% NN-VI v5 (покращена версія з recovery-oriented training policy)
+model_vi_file = fullfile(project_dir, 'neural_network', 'trained_network_vi_v5.mat');
+data_vi_file = fullfile(project_dir, 'data_generation', 'training_data_vi_v5.mat');
 
 if ~exist(data_vi_file, 'file')
     fprintf('VI train-дані v4 не знайдено. Генеруємо...\n');
@@ -88,6 +88,8 @@ else
     vi_data_stale = ...
         (~isfield(training_data_vi, 'V_in')) || ...
         (~isfield(training_data_vi, 'target_dV')) || ...
+        (~isfield(loaded_data_vi, 'dataset_version')) || ...
+        (loaded_data_vi.dataset_version < 5) || ...
         (max(training_data_vi.V_in) < 120) || ...
         (max(abs(training_data_vi.target_dV)) < 2.0);
 
@@ -116,13 +118,13 @@ else
         (~isfield(network_vi, 'output_min') || abs(network_vi.output_min - vi_ref.output_min) > 1e-9) || ...
         (~isfield(network_vi, 'output_max') || abs(network_vi.output_max - vi_ref.output_max) > 1e-9);
 
-    if ~isfield(network_vi, 'version') || network_vi.version < 4 || vi_scale_mismatch || vi_data_refreshed
+    if ~isfield(network_vi, 'version') || network_vi.version < 5 || vi_scale_mismatch || vi_data_refreshed
         retrain_vi = true;
     end
 end
 
 if retrain_vi
-    fprintf('Навчаємо NN-VI v4 (покращена архітектура)...\n');
+    fprintf('Навчаємо NN-VI v5 (recovery-oriented архітектура)...\n');
     network_vi = nn_init_vi();
     [network_vi, training_info_vi] = nn_train_vi(network_vi, training_data_vi, validation_data_vi); %#ok<NASGU>
     save(model_vi_file, 'network_vi', 'training_info_vi');
@@ -138,7 +140,7 @@ if isfield(network_vi, 'action_limit')
 else
     action_limit = 6;   % масштабовано під масив 10s × 2p (Voc_arr=329 V)
 end
-fprintf('✓ NN-VI v4 завантажена (архітектура 6-24-12-1, action_limit=%.2f V)\n\n', action_limit);
+fprintf('✓ NN-VI v5 завантажена (архітектура 6-24-12-1, action_limit=%.2f V)\n\n', action_limit);
 
 scenarios = {
     struct('name', 'Ясний день', 'cloud', 'clear', 'day', 170, 'stress', 'none'),
@@ -311,8 +313,8 @@ for scenario_idx = 1:length(scenarios)
 
         % Нове: додаємо V_prev (попередня напруга) як 2-й вхід
         dv_pure = nn_forward_vi(network_vi, [V_vi_pure(i); V_vi_pure_prev; i_pure; P_vi_pure(i); dV_pure; dP_pure]);
-        if abs(dP_pure) < 0.5
-            dv_pure = 0.5 * dv_pure;
+        if abs(dP_pure) < 0.5 && abs(dV_pure) < 0.5
+            dv_pure = 0.8 * dv_pure;
         end
         dv_pure = max(-action_limit, min(action_limit, dv_pure));
         dV_cmd_pure(i) = dv_pure;
